@@ -1194,9 +1194,11 @@ class _TeleprompterPageState extends State<TeleprompterPage>
       ),
     );
     if (openSettings == true && mounted) {
-      await Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (_) => const SettingsPage()));
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => const SettingsPage(cloudSyncAllowed: false),
+        ),
+      );
       if (!mounted) return false;
       final selectedId = settingsProvider.settings.asrModelId;
       return selectedId.isNotEmpty &&

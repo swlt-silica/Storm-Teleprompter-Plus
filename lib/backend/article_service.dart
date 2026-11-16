@@ -1,5 +1,6 @@
 import 'dart:convert';
 import '../models/article.dart';
+import '../models/cloud_library_snapshot.dart';
 import '../models/folder.dart';
 import '../services/app_preferences.dart';
 import '../utils/constants.dart';
@@ -44,6 +45,9 @@ class ArticleService {
           break;
         case WsMessageType.articleImport:
           _handleArticleImport(server, request);
+          break;
+        case WsMessageType.articleCloudImport:
+          _handleCloudLibraryImport(server, request);
           break;
         case WsMessageType.folderList:
           _handleFolderList(server, request);
@@ -316,6 +320,84 @@ class ArticleService {
   }
 
   // ─── 文件夹处理器 ───────────────────────────────────────
+
+  Future<void> _handleCloudLibraryImport(
+    WsServer server,
+    WsRequest request,
+  ) async {
+    try {
+      final result = await importCloudLibrary(request.message.data);
+      server.respond(
+        request.clientId,
+        WsMessage(
+          type: WsMessageType.articleCloudImportResponse,
+          id: request.message.id,
+          data: result.toJson(),
+        ),
+      );
+    } catch (error) {
+      _respondError(server, request, '云稿库同步失败：$error');
+    }
+  }
+
+  /// 全量校验后只保存一次稿件库；不修改文件夹、设备设置或未包含的稿件。
+  Future<CloudLibraryImportResult> importCloudLibrary(
+    Map<String, dynamic> json,
+  ) async {
+    final snapshot = CloudLibrarySnapshot.fromJson(json);
+    // The ordinary list UI tolerates damaged local data by showing an empty
+    // list. A sync must instead stop, so it cannot overwrite recoverable data.
+    final stored = _prefs.getString(StorageConstants.articlesKey);
+    final articles = stored == null || stored.isEmpty
+        ? <Article>[]
+        : (jsonDecode(stored) as List<dynamic>)
+              .map((item) => Article.fromJson(item as Map<String, dynamic>))
+              .toList();
+    final positions = {
+      for (var index = 0; index < articles.length; index++)
+        articles[index].id: index,
+    };
+    var created = 0;
+    var updated = 0;
+    var unchanged = 0;
+    for (final script in snapshot.scripts) {
+      final id = script.localId(snapshot.libraryId);
+      final position = positions[id];
+      final content = script.safeContent;
+      if (position == null) {
+        positions[id] = articles.length;
+        articles.add(
+          Article(
+            id: id,
+            title: script.scriptId,
+            content: content,
+            createdAt: script.createdAt,
+            updatedAt: script.updatedAt,
+          ),
+        );
+        created++;
+      } else {
+        final existing = articles[position];
+        if (existing.title == script.scriptId && existing.content == content) {
+          unchanged++;
+        } else {
+          articles[position] = existing.copyWith(
+            title: script.scriptId,
+            content: content,
+            updatedAt: script.updatedAt,
+          );
+          updated++;
+        }
+      }
+    }
+    if (created > 0 || updated > 0) await _saveArticles(articles);
+    return CloudLibraryImportResult(
+      created: created,
+      updated: updated,
+      unchanged: unchanged,
+      total: snapshot.scripts.length,
+    );
+  }
 
   Future<void> _handleFolderList(WsServer server, WsRequest request) async {
     final folders = await loadFolders();

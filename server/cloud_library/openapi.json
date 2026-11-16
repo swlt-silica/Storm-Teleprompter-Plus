@@ -1,0 +1,60 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "私人提词云稿库上传",
+    "version": "1.0.0",
+    "description": "按脚本编号上传纯台词。同编号更新该稿件，正文未变化不会新增副本。"
+  },
+  "servers": [{"url": "https://note.swlt.work/teleprompter"}],
+  "security": [{"bearerAuth": []}],
+  "components": {
+    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer"}},
+    "schemas": {
+      "UploadResult": {
+        "type": "object",
+        "properties": {
+          "created": {"type": "boolean"},
+          "script": {
+            "type": "object",
+            "properties": {
+              "scriptId": {"type": "string"},
+              "title": {"type": "string"},
+              "body": {"type": "string"},
+              "revision": {"type": "integer"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/v1/scripts/import-markdown": {
+      "post": {
+        "operationId": "uploadTeleprompterScript",
+        "summary": "按脚本编号新建或更新提词正文",
+        "description": "markdown 必须以仅含 script_id 的 --- 信息区开头。## 正文 下只放纯台词，到下一一级或二级标题结束。编号作为标题，保留前导零。一个请求只上传一个脚本。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["markdown"],
+                "additionalProperties": false,
+                "properties": {"markdown": {"type": "string", "description": "包含脚本编号信息区和 ## 正文 的完整 Markdown。"}}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {"description": "同编号已更新，或正文相同无需更新", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UploadResult"}}}},
+          "201": {"description": "已新增稿件", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UploadResult"}}}},
+          "400": {"description": "Markdown 或编号无效，未写入"},
+          "401": {"description": "上传令牌无效"},
+          "403": {"description": "令牌只能下载，不能上传"},
+          "413": {"description": "正文或稿库超过大小限制"}
+        }
+      }
+    }
+  }
+}

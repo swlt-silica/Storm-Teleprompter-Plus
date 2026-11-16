@@ -79,6 +79,17 @@ class AppPreferences {
     await file.parent.create(recursive: true);
     final temporaryFile = File('${file.path}.tmp');
     await temporaryFile.writeAsString(jsonEncode(snapshot), flush: true);
+    // Connection tokens now live in these device-local preferences. Keep the
+    // portable Unix file private before it replaces the previous snapshot.
+    if (!Platform.isWindows) {
+      final result = await Process.run('/bin/chmod', [
+        '600',
+        temporaryFile.path,
+      ]);
+      if (result.exitCode != 0) {
+        throw const FileSystemException('无法限制本机连接配置文件的读取权限');
+      }
+    }
     if (await file.exists()) await file.delete();
     await temporaryFile.rename(file.path);
   }

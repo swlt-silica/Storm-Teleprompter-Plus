@@ -61,6 +61,9 @@ jobs:
       - name: Test
         run: flutter test --no-pub
 
+      - name: Test cloud library server
+        run: python3 -m unittest discover -s server/cloud_library/tests -v
+
       - name: Configure fork signing
         shell: bash
         env:
@@ -130,3 +133,56 @@ jobs:
         if: always()
         shell: bash
         run: rm -f android/key.properties "$RUNNER_TEMP/storm-overlay.jks"
+
+  windows:
+    name: Build Windows x64 with cloud library
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/flutter
+          key: flutter-${{ runner.os }}-${{ runner.arch }}-${{ env.FLUTTER_VERSION }}
+      - name: Install Flutter from official tag
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sdk = Join-Path $env:RUNNER_TEMP 'flutter'
+          if (!(Test-Path "$sdk/.git")) {
+            git clone --depth 1 --branch $env:FLUTTER_VERSION https://github.com/flutter/flutter.git $sdk
+            if ($LASTEXITCODE -ne 0) { throw 'Flutter checkout failed' }
+          }
+          $tag = git -C $sdk describe --tags --exact-match
+          if ($LASTEXITCODE -ne 0 -or $tag -ne $env:FLUTTER_VERSION) { throw 'Unexpected Flutter version' }
+          "$sdk/bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          & "$sdk/bin/flutter.bat" --version
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter setup failed' }
+      - name: Resolve locked dependencies
+        run: flutter pub get --enforce-lockfile
+      - name: Build Windows release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = 'cloud-' + $env:GITHUB_SHA.Substring(0, 8)
+          flutter build windows --release --no-pub --dart-define=APP_VERSION=$version
+          if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          $zip = "artifacts/storm-cloud-windows-x64-$($env:GITHUB_SHA.Substring(0,8)).zip"
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath $zip
+          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path $zip -Leaf)" | Out-File artifacts/SHA256SUMS.txt -Encoding utf8
+          @{
+            repository = $env:GITHUB_REPOSITORY
+            commit = $env:GITHUB_SHA
+            version = $version
+            flutter = $env:FLUTTER_VERSION
+            platform = 'windows-x64'
+            deviceTesting = 'Build verified; not yet run on user Windows device'
+          } | ConvertTo-Json | Out-File artifacts/build.json -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: storm-cloud-windows-x64-${{ github.sha }}
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 30

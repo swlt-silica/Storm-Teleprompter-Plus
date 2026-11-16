@@ -18,6 +18,8 @@ enum WsMessageType {
   articleDeleteResponse('article:delete_response'),
   articleImport('article:import'),
   articleImportResponse('article:import_response'),
+  articleCloudImport('article:cloud_import'),
+  articleCloudImportResponse('article:cloud_import_response'),
   articleExport('article:export'),
   articleExportResponse('article:export_response'),
 
