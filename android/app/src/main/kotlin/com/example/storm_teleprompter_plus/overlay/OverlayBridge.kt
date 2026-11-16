@@ -18,6 +18,7 @@ class OverlayBridge(private val activity: Activity, messenger: BinaryMessenger) 
     private val channel = MethodChannel(messenger, "storm.teleprompter/overlay")
     private var permissionResult: MethodChannel.Result? = null
     private var permissionRequestCode = 0
+    private val vendorSettings = VendorSettings(activity)
 
     init {
         channel.setMethodCallHandler(this)
@@ -31,9 +32,10 @@ class OverlayBridge(private val activity: Activity, messenger: BinaryMessenger) 
                     "overlayPermission" to Settings.canDrawOverlays(activity),
                     "accessibilityEnabled" to (TeleprompterAccessibilityService.current != null),
                     "microphonePermission" to hasPermission(Manifest.permission.RECORD_AUDIO),
-                    "notificationPermission" to (Build.VERSION.SDK_INT < 33 || hasPermission(Manifest.permission.POST_NOTIFICATIONS)),
+                    "notificationPermission" to (vendorSettings.notificationsEnabled() &&
+                        (Build.VERSION.SDK_INT < 33 || hasPermission(Manifest.permission.POST_NOTIFICATIONS))),
                     "running" to (TeleprompterOverlayService.current?.isShowing == true),
-                ))
+                ) + vendorSettings.status())
                 "requestOverlayPermission" -> {
                     activity.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${activity.packageName}")))
                     result.success(true)
@@ -46,10 +48,26 @@ class OverlayBridge(private val activity: Activity, messenger: BinaryMessenger) 
                     activity.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${activity.packageName}")))
                     result.success(true)
                 }
+                "openVendorPermissions" -> {
+                    vendorSettings.openVendorPermissions()
+                    result.success(true)
+                }
+                "openAutoStartSettings" -> {
+                    vendorSettings.openAutoStartSettings()
+                    result.success(true)
+                }
+                "openBatterySettings" -> {
+                    vendorSettings.openBatterySettings()
+                    result.success(true)
+                }
                 "requestMicrophonePermission" -> requestPermission(Manifest.permission.RECORD_AUDIO, 8201, result)
                 "requestNotificationPermission" -> {
-                    if (Build.VERSION.SDK_INT < 33) result.success(true)
-                    else requestPermission(Manifest.permission.POST_NOTIFICATIONS, 8202, result)
+                    if (Build.VERSION.SDK_INT >= 33 && !hasPermission(Manifest.permission.POST_NOTIFICATIONS)) {
+                        requestPermission(Manifest.permission.POST_NOTIFICATIONS, 8202, result)
+                    } else if (!vendorSettings.notificationsEnabled()) {
+                        vendorSettings.openNotificationSettings()
+                        result.success(false)
+                    } else result.success(true)
                 }
                 "start" -> {
                     val args = call.arguments as? Map<*, *> ?: emptyMap<String, Any>()
@@ -104,8 +122,8 @@ class OverlayBridge(private val activity: Activity, messenger: BinaryMessenger) 
                     }
                 }
                 "returnToApp" -> {
-                    returnToApp()
-                    result.success(true)
+                    if (returnToApp()) result.success(true)
+                    else result.error("return_blocked", "无法返回应用，请从桌面或运行通知打开提词器；MIUI 用户请检查“后台弹出界面”权限。", null)
                 }
                 else -> result.notImplemented()
             }
@@ -167,11 +185,17 @@ class OverlayBridge(private val activity: Activity, messenger: BinaryMessenger) 
             current?.emit(action, values)
         }
 
-        fun returnToApp() {
-            val bridge = current ?: return
-            bridge.activity.startActivity(Intent(bridge.activity, MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            })
+        fun returnToApp(): Boolean {
+            val bridge = current ?: return false
+            return try {
+                bridge.activity.startActivity(Intent(bridge.activity, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                })
+                true
+            } catch (_: Exception) {
+                action("error", mapOf("message" to "无法返回应用，请从桌面或运行通知打开提词器；MIUI 用户请检查“后台弹出界面”权限。"))
+                false
+            }
         }
 
         fun openCamera() {
@@ -179,6 +203,7 @@ class OverlayBridge(private val activity: Activity, messenger: BinaryMessenger) 
             try {
                 val intent = Intent(MediaStore.INTENT_ACTION_VIDEO_CAMERA)
                 if (intent.resolveActivity(bridge.activity.packageManager) != null) bridge.activity.startActivity(intent)
+                else action("error", mapOf("message" to "没有找到相机，请从桌面手动打开手机相机。"))
             } catch (_: Exception) {
                 action("error", mapOf("message" to "无法打开相机，请手动切换到手机相机。"))
             }

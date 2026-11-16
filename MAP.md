@@ -3,6 +3,7 @@
 | 部分 | 位置与职责 |
 | --- | --- |
 | 安卓壳 | `android/app/src/main/`：FlutterActivity、权限、原生悬浮窗和运行服务 |
+| 厂商设置 | `android/app/src/main/kotlin/com/example/storm_teleprompter_plus/overlay/VendorSettings.kt`：MIUI 组件检测、用户主动打开权限/自启动/省电页与通用回退 |
 | 提词页面 | `lib/pages/teleprompter_page.dart`：全屏与悬浮入口、页面生命周期 |
 | 提词状态 | `lib/providers/teleprompter_provider.dart`：播放、当前位置、前后移动与识别结果 |
 | 设置 | `lib/models/app_settings.dart`、`lib/providers/settings_provider.dart`：设置持久化与稿件覆盖 |

@@ -243,7 +243,9 @@ class _FloatingOverlaySheetState extends State<FloatingOverlaySheet>
               _permission(
                 title: '录像时保持语音跟读',
                 description:
-                    '请在无障碍设置中启用“飓风提词器：相机悬浮跟读”。服务不读取屏幕内容，用于相机录像时保持语音输入。Android 13 及以上若开关受限，可在应用信息中查看“允许受限设置”。不同手机仍需实测兼容性。',
+                    '请在无障碍设置中启用“飓风提词器：相机悬浮跟读”。服务不读取屏幕内容，用于相机录像时保持语音输入。'
+                    '${(_status?.androidSdk ?? 0) >= 33 ? 'Android 13 及以上若开关受限，可在应用信息中查看“允许受限设置”。' : ''}'
+                    '不同手机仍需实测兼容性。',
                 granted: _status?.accessibilityEnabled,
                 button: '去开启',
                 onPressed: () =>
@@ -259,6 +261,7 @@ class _FloatingOverlaySheetState extends State<FloatingOverlaySheet>
                 await controller.bridge.requestNotificationPermission();
               }),
             ),
+            if (_status?.isMiuiDevice == true) ..._miuiSettings(controller),
             if (continuous) ...[
               const SizedBox(height: 12),
               const Text('像素匀速滚动依赖页面绘制，暂不用于悬浮窗。可明确切换为按字自动滚动，或返回选择语音模式。'),
@@ -354,6 +357,75 @@ class _FloatingOverlaySheetState extends State<FloatingOverlaySheet>
         onChangeEnd: _busy ? null : (_) => unawaited(_save()),
       ),
     ],
+  );
+
+  List<Widget> _miuiSettings(FloatingTeleprompterController controller) {
+    final status = _status!;
+    final device = [
+      status.deviceManufacturer,
+      status.deviceModel,
+    ].where((part) => part.trim().isNotEmpty).join(' ');
+    return [
+      const SizedBox(height: 20),
+      const Text(
+        'MIUI 运行权限',
+        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+      ),
+      if (device.isNotEmpty) ...[
+        const SizedBox(height: 4),
+        Text('当前设备：$device', style: const TextStyle(fontSize: 12)),
+      ],
+      const SizedBox(height: 8),
+      const Text(
+        '切到相机后台词消失、返回应用按钮无反应或跟读停止时，请检查以下设置。菜单名称可能随系统版本不同；应用无法读取这些厂商权限是否已开启。',
+        style: TextStyle(fontSize: 12),
+      ),
+      _vendorSetting(
+        title: '悬浮窗与后台弹出界面',
+        description: '在其他权限中允许“显示悬浮窗”和“后台弹出界面”，以便相机上显示台词并返回提词器。',
+        action: controller.bridge.openVendorPermissions,
+      ),
+      _vendorSetting(
+        title: '自启动',
+        description: '按需允许应用自启动，减少系统限制后台运行。此设置不会让提词器自动开始录音。',
+        action: controller.bridge.openAutoStartSettings,
+      ),
+      _vendorSetting(
+        title: '省电策略',
+        description: status.batteryOptimizationExempt == true
+            ? '系统电池优化已豁免；MIUI 的应用省电策略仍需手动确认“无限制”。'
+            : '将本应用的省电策略设为“无限制”，避免切换相机后暂停跟读。',
+        action: controller.bridge.openBatterySettings,
+      ),
+    ];
+  }
+
+  Widget _vendorSetting({
+    required String title,
+    required String description,
+    required Future<void> Function() action,
+  }) => Padding(
+    padding: const EdgeInsets.only(top: 12),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w500)),
+              const SizedBox(height: 4),
+              Text(description, style: const TextStyle(fontSize: 12)),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        TextButton(
+          onPressed: _busy ? null : () => _run(action),
+          child: const Text('去检查'),
+        ),
+      ],
+    ),
   );
 
   Widget _permission({

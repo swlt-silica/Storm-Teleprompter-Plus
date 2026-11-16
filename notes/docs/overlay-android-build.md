@@ -59,7 +59,7 @@ export PUB_HOSTED_URL=https://pub.flutter-io.cn
 flutter pub get --enforce-lockfile
 flutter analyze --no-pub
 flutter test --no-pub
-flutter build apk --release --no-pub --target-platform android-arm64 \
+flutter build apk --release --no-pub --split-per-abi --target-platform android-arm64 \
   --dart-define=APP_VERSION=overlay-local
 ```
 
@@ -72,7 +72,7 @@ flutter build apk --release --no-pub --target-platform android-arm64 \
 
 ## 真机验收边界
 
-CI 的静态检查、单元测试和 APK 构建不能证明 OPPO 系统相机与提词器可以同时获取
+CI 的静态检查、单元测试和 APK 构建不能证明 OPPO 或 Redmi 系统相机与提词器可以同时获取
 麦克风。发布前需要在目标手机上验证以下实际操作：
 
 - 允许相应权限后，打开自拍相机，确认人脸和台词同时可见。

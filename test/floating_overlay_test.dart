@@ -38,6 +38,127 @@ void main() {
     await expectLater(bridge.start({'text': '台词'}), throwsStateError);
   });
 
+  test('设备状态保留真实系统信息，厂商未知状态不被当成已授权', () {
+    final status = FloatingOverlayStatus.fromMap({
+      'isMiuiDevice': true,
+      'deviceManufacturer': 'Xiaomi',
+      'deviceModel': '22041216C',
+      'androidSdk': 31,
+      'batteryOptimizationExempt': false,
+    });
+    expect(status.isMiuiDevice, isTrue);
+    expect(status.deviceModel, '22041216C');
+    expect(status.androidSdk, 31);
+    expect(status.batteryOptimizationExempt, isFalse);
+    final unknown = FloatingOverlayStatus.fromMap({});
+    expect(unknown.isMiuiDevice, isFalse);
+    expect(unknown.batteryOptimizationExempt, isNull);
+    expect(unknown.androidSdk, 0);
+  });
+
+  test('厂商权限、自启动和省电策略使用对应的原生入口', () async {
+    const channel = MethodChannel('storm.overlay.miui.test');
+    final methods = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          methods.add(call.method);
+          return null;
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+    final bridge = FloatingTeleprompterBridge(channel: channel);
+    await bridge.openVendorPermissions();
+    await bridge.openAutoStartSettings();
+    await bridge.openBatterySettings();
+    expect(methods, [
+      'openVendorPermissions',
+      'openAutoStartSettings',
+      'openBatterySettings',
+    ]);
+  });
+
+  testWidgets('MIUI 引导不伪报厂商授权且三个入口可操作，不额外阻止启动', (tester) async {
+    final fixture = _Fixture();
+    addTearDown(fixture.dispose);
+    fixture.bridge.permissions = const FloatingOverlayStatus(
+      overlayPermission: true,
+      microphonePermission: true,
+      accessibilityEnabled: true,
+      isMiuiDevice: true,
+      deviceManufacturer: 'Xiaomi',
+      deviceModel: '22041216C',
+      androidSdk: 31,
+      batteryOptimizationExempt: false,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: FloatingOverlaySheet(
+            controller: fixture.controller,
+            settings: fixture.settings,
+            prepareOrientation: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('MIUI 运行权限'), findsOneWidget);
+    expect(find.text('当前设备：Xiaomi 22041216C'), findsOneWidget);
+    expect(find.textContaining('应用无法读取这些厂商权限是否已开启'), findsOneWidget);
+    expect(find.text('去检查'), findsNWidgets(3));
+    expect(
+      tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+      isNotNull,
+    );
+    for (final title in ['悬浮窗与后台弹出界面', '自启动', '省电策略']) {
+      final row = find.ancestor(
+        of: find.text(title),
+        matching: find.byType(Row),
+      );
+      final button = find.descendant(
+        of: row,
+        matching: find.byType(TextButton),
+      );
+      await tester.ensureVisible(button);
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+    }
+    expect(fixture.bridge.vendorPermissionCalls, 1);
+    expect(fixture.bridge.autoStartCalls, 1);
+    expect(fixture.bridge.batterySettingsCalls, 1);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  for (final sdk in [31, 33]) {
+    testWidgets('Android API $sdk 按真实底层版本显示受限设置提示', (tester) async {
+      final fixture = _Fixture();
+      addTearDown(fixture.dispose);
+      await fixture.settings.setScrollMode(ScrollMode.asr);
+      fixture.bridge.permissions = FloatingOverlayStatus(androidSdk: sdk);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FloatingOverlaySheet(
+              controller: fixture.controller,
+              settings: fixture.settings,
+              prepareOrientation: () async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('MIUI 运行权限'), findsNothing);
+      expect(
+        find.textContaining('允许受限设置'),
+        sdk >= 33 ? findsOneWidget : findsNothing,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
   test('富文本换行与 emoji 的游标转换保持 UTF-16 边界并允许回退', () {
     final lines = TextParser.parse('<p>你好😀</p><p>第二句</p>');
     final script = FloatingScriptText.fromLines(lines);
@@ -297,6 +418,9 @@ class _FakeBridge extends FloatingTeleprompterBridge {
   int startCalls = 0;
   int cameraCalls = 0;
   int appSettingsCalls = 0;
+  int vendorPermissionCalls = 0;
+  int autoStartCalls = 0;
+  int batterySettingsCalls = 0;
   final starts = <Map<String, dynamic>>[];
   Object? startError;
   final updates = <Map<String, dynamic>>[];
@@ -323,6 +447,21 @@ class _FakeBridge extends FloatingTeleprompterBridge {
   @override
   Future<void> openAppSettings() async {
     appSettingsCalls++;
+  }
+
+  @override
+  Future<void> openVendorPermissions() async {
+    vendorPermissionCalls++;
+  }
+
+  @override
+  Future<void> openAutoStartSettings() async {
+    autoStartCalls++;
+  }
+
+  @override
+  Future<void> openBatterySettings() async {
+    batterySettingsCalls++;
   }
 
   @override

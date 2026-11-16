@@ -10,6 +10,11 @@ class FloatingOverlayStatus {
     this.microphonePermission = false,
     this.notificationPermission = false,
     this.running = false,
+    this.isMiuiDevice = false,
+    this.deviceManufacturer = '',
+    this.deviceModel = '',
+    this.androidSdk = 0,
+    this.batteryOptimizationExempt,
   });
 
   factory FloatingOverlayStatus.fromMap(Map<dynamic, dynamic> map) =>
@@ -19,6 +24,13 @@ class FloatingOverlayStatus {
         microphonePermission: map['microphonePermission'] == true,
         notificationPermission: map['notificationPermission'] == true,
         running: map['running'] == true,
+        isMiuiDevice: map['isMiuiDevice'] == true,
+        deviceManufacturer: map['deviceManufacturer'] as String? ?? '',
+        deviceModel: map['deviceModel'] as String? ?? '',
+        androidSdk: (map['androidSdk'] as num?)?.toInt() ?? 0,
+        batteryOptimizationExempt: map['batteryOptimizationExempt'] is bool
+            ? map['batteryOptimizationExempt'] as bool
+            : null,
       );
 
   final bool overlayPermission;
@@ -26,6 +38,11 @@ class FloatingOverlayStatus {
   final bool microphonePermission;
   final bool notificationPermission;
   final bool running;
+  final bool isMiuiDevice;
+  final String deviceManufacturer;
+  final String deviceModel;
+  final int androidSdk;
+  final bool? batteryOptimizationExempt;
 }
 
 /// 唯一的原生通道边界。窗口启动必须由原生返回成功后才能视为运行。
@@ -63,6 +80,12 @@ class FloatingTeleprompterBridge {
       _channel.invokeMethod<void>('openAppSettings');
   Future<void> openAccessibilitySettings() =>
       _channel.invokeMethod<void>('openAccessibilitySettings');
+  Future<void> openVendorPermissions() =>
+      _channel.invokeMethod<void>('openVendorPermissions');
+  Future<void> openAutoStartSettings() =>
+      _channel.invokeMethod<void>('openAutoStartSettings');
+  Future<void> openBatterySettings() =>
+      _channel.invokeMethod<void>('openBatterySettings');
   Future<bool> requestMicrophonePermission() async =>
       await _channel.invokeMethod<bool>('requestMicrophonePermission') ?? false;
   Future<bool> requestNotificationPermission() async =>
