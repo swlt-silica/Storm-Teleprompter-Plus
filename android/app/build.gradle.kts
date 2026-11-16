@@ -40,7 +40,8 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.storm_teleprompter_plus"
+        // Separate install/signing identity: keep the upstream app and its data intact.
+        applicationId = "work.swlt.stormteleprompter"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

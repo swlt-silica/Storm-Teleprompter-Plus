@@ -5,9 +5,9 @@ import 'package:http/http.dart' as http;
 import 'git_version.dart';
 
 const githubRepositoryUrl =
-    'https://github.com/html5syt/Storm-Teleprompter-Plus';
+    'https://github.com/swlt-silica/Storm-Teleprompter-Plus';
 const _latestReleaseApiUrl =
-    'https://api.github.com/repos/html5syt/Storm-Teleprompter-Plus/releases/latest';
+    'https://api.github.com/repos/swlt-silica/Storm-Teleprompter-Plus/releases/latest';
 
 class AppVersionInfo {
   const AppVersionInfo(this.value);

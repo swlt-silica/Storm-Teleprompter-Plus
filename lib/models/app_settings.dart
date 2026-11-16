@@ -1,3 +1,5 @@
+import 'floating_overlay_settings.dart';
+
 enum ScrollMode {
   /// 自动滚动（按行或匀速）
   auto,
@@ -15,6 +17,9 @@ enum AppBrightnessMode { system, light, dark }
 ///
 /// 管理所有用户可配置的提词器参数。
 class AppSettings {
+  /// 安卓悬浮窗配置为设备级全局设置，不随稿件覆盖。
+  final FloatingOverlaySettings floatingOverlay;
+
   /// 字体大小（像素）
   final double fontSize;
 
@@ -142,6 +147,7 @@ class AppSettings {
   final String quickModeFolderId;
 
   const AppSettings({
+    this.floatingOverlay = const FloatingOverlaySettings(),
     this.quickModeEnabled = false,
     this.quickModeAutoSave = false,
     this.quickModeFolderId = '',
@@ -189,6 +195,9 @@ class AppSettings {
   /// 从 JSON 反序列化
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     return AppSettings(
+      floatingOverlay: FloatingOverlaySettings.fromJson(
+        Map<String, dynamic>.from(json['floatingOverlay'] as Map? ?? const {}),
+      ),
       quickModeEnabled: json['quickModeEnabled'] as bool? ?? false,
       quickModeAutoSave: json['quickModeAutoSave'] as bool? ?? false,
       quickModeFolderId: json['quickModeFolderId'] as String? ?? '',
@@ -252,6 +261,7 @@ class AppSettings {
   /// 序列化为 JSON
   Map<String, dynamic> toJson() {
     return {
+      'floatingOverlay': floatingOverlay.toJson(),
       'quickModeEnabled': quickModeEnabled,
       'quickModeAutoSave': quickModeAutoSave,
       'quickModeFolderId': quickModeFolderId,
@@ -299,6 +309,7 @@ class AppSettings {
 
   /// 创建副本并修改部分字段
   AppSettings copyWith({
+    FloatingOverlaySettings? floatingOverlay,
     bool? quickModeEnabled,
     bool? quickModeAutoSave,
     String? quickModeFolderId,
@@ -343,6 +354,7 @@ class AppSettings {
     AppBrightnessMode? appBrightnessMode,
   }) {
     return AppSettings(
+      floatingOverlay: floatingOverlay ?? this.floatingOverlay,
       quickModeEnabled: quickModeEnabled ?? this.quickModeEnabled,
       quickModeAutoSave: quickModeAutoSave ?? this.quickModeAutoSave,
       quickModeFolderId: quickModeFolderId ?? this.quickModeFolderId,
@@ -401,6 +413,7 @@ class AppSettings {
   AppSettings mergeOverrides(Map<String, dynamic> overrides) {
     if (overrides.isEmpty) return this;
     return AppSettings(
+      floatingOverlay: floatingOverlay,
       quickModeEnabled: quickModeEnabled,
       quickModeAutoSave: quickModeAutoSave,
       quickModeFolderId: quickModeFolderId,

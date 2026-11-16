@@ -1245,6 +1245,13 @@ class AsrService with ChangeNotifier {
           echoCancel: false,
           noiseSuppress: false,
           device: inputDevice,
+          // Recognition is non-private audio input; avoid call/camcorder routing
+          // so an enabled accessibility service can share input with the camera.
+          androidConfig: const AndroidRecordConfig(
+            audioSource: AndroidAudioSource.voiceRecognition,
+            audioManagerMode: AudioManagerMode.modeNormal,
+            manageBluetooth: false,
+          ),
         ),
       );
       _isRunning = true;

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../backend/ws_protocol.dart';
 import '../models/app_settings.dart';
+import '../models/floating_overlay_settings.dart';
 import 'connection_provider.dart';
 
 /// 应用设置状态管理（前端）
@@ -191,6 +192,13 @@ class SettingsProvider with ChangeNotifier {
     } catch (e) {
       debugPrint('[SettingsProvider] 保存设置失败: $e');
     }
+  }
+
+  /// 悬浮窗是本设备的全局外观，不写入当前稿件覆盖。
+  Future<void> setFloatingOverlay(FloatingOverlaySettings value) async {
+    _settings = _settings.copyWith(floatingOverlay: value);
+    notifyListeners();
+    await _saveSettings();
   }
 
   /// 更新字体大小
