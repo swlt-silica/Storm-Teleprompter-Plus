@@ -13,12 +13,10 @@ mixin TeleprompterPageLogic<T extends StatefulWidget>
   TeleprompterProvider? _teleprompterProvider;
   SettingsProvider? _settingsProvider;
   ConnectionProvider? _connectionProvider;
-  ArticleProvider? _articleProvider;
   _WindowEventListener? _windowListener;
   bool _remoteSessionEndSent = false;
   bool _viewportProgressUpdateScheduled = false;
   double? _pendingViewportProgress;
-  Timer? _articleSettingsSaveTimer;
 
   @override
   void initState() {
@@ -27,16 +25,24 @@ mixin TeleprompterPageLogic<T extends StatefulWidget>
     _teleprompterProvider = context.read<TeleprompterProvider>();
     _settingsProvider = context.read<SettingsProvider>();
     _connectionProvider = context.read<ConnectionProvider>();
-    _articleProvider = context.read<ArticleProvider>();
     _setupScrollListener();
 
-    // 加载稿件特有的提词器设置覆盖
-    final article = (widget as TeleprompterPage).article;
-    _settingsProvider!.loadArticleOverrides(
-      article.teleprompterSettings,
-      notify: false,
-    );
-    _settingsProvider!.addListener(_scheduleArticleSettingsSave);
+    // 本机稿件只用设备共享设置；远端稿件携带主端的会话快照。
+    // 远端切稿先退出旧页面，其 dispose 会清掉临时设置，故此处重新应用
+    // 新会话快照。连接重试时同样保留这份快照，避免回退本机配置。
+    final connection = _connectionProvider!;
+    if (!connection.isRemote && !connection.canRetryRemoteConnection) {
+      _settingsProvider!.useSharedTeleprompterSettings(notify: false);
+    } else {
+      final sessionSettings =
+          (widget as TeleprompterPage).article.teleprompterSettings;
+      if (sessionSettings != null) {
+        _settingsProvider!.applyRemoteTeleprompterSettings(
+          sessionSettings,
+          notify: false,
+        );
+      }
+    }
 
     // 监听窗口最大化/还原事件，确保标题栏正确显示
     if (_isDesktop) {
@@ -67,8 +73,6 @@ mixin TeleprompterPageLogic<T extends StatefulWidget>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _settingsProvider?.removeListener(_scheduleArticleSettingsSave);
-    _articleSettingsSaveTimer?.cancel();
     if (_windowListener != null) {
       windowManager.removeListener(_windowListener!);
     }
@@ -76,48 +80,13 @@ mixin TeleprompterPageLogic<T extends StatefulWidget>
     if (isFullScreen) {
       unawaited(exitFullScreen(updateState: false));
     }
-    // 保存稿件覆盖设置到稿件
-    unawaited(_saveArticleOverrides());
     _sendRemoteSessionEndIfMaster();
-    // 清除稿件覆盖
-    _settingsProvider?.clearArticleOverrides(notify: false);
+    // 退出只清除远端会话的临时显示配置，不修改本机共享设置。
+    _settingsProvider?.clearRemoteTeleprompterSettings(notify: false);
     scrollController.dispose();
     // 退出时停止提词器（不触发 notifyListeners，避免 defunct 异常）
     _teleprompterProvider?.stopAll();
     super.dispose();
-  }
-
-  /// 将稿件覆盖设置保存回稿件
-  void _scheduleArticleSettingsSave() {
-    final connection = _connectionProvider;
-    if (connection == null || connection.isRemote || !connection.isConnected) {
-      return;
-    }
-    _articleSettingsSaveTimer?.cancel();
-    _articleSettingsSaveTimer = Timer(
-      TeleprompterConstants.articleSettingsSaveDebounce,
-      () => unawaited(_saveArticleOverrides()),
-    );
-  }
-
-  Future<void> _saveArticleOverrides() async {
-    if (!(widget as TeleprompterPage).persistArticleSettings) return;
-    final connection = _connectionProvider;
-    if (connection == null) return;
-    if (connection.isRemote || connection.canRetryRemoteConnection) return;
-
-    final overrides = _settingsProvider?.articleOverrides;
-    if (overrides != null && overrides.isNotEmpty) {
-      try {
-        final article = (widget as TeleprompterPage).article;
-        await _articleProvider?.updateArticleTeleprompterSettings(
-          article.id,
-          Map<String, dynamic>.from(overrides),
-        );
-      } catch (e) {
-        debugPrint('[TeleprompterLogic] 保存稿件设置失败: $e');
-      }
-    }
   }
 
   Map<String, dynamic> _sessionEndData() {

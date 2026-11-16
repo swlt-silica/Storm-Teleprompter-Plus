@@ -9,7 +9,6 @@ import 'package:window_manager/window_manager.dart';
 import '../backend/ws_protocol.dart';
 import '../models/article.dart';
 import '../models/app_settings.dart';
-import '../providers/article_provider.dart';
 import '../providers/connection_provider.dart';
 import '../providers/teleprompter_provider.dart';
 import '../providers/settings_provider.dart';
@@ -41,14 +40,7 @@ part 'teleprompter/teleprompter_logic.dart';
 class TeleprompterPage extends StatefulWidget {
   final Article article;
 
-  /// 临时稿件仅用于当前会话，不尝试更新稿件数据库。
-  final bool persistArticleSettings;
-
-  const TeleprompterPage({
-    super.key,
-    required this.article,
-    this.persistArticleSettings = true,
-  });
+  const TeleprompterPage({super.key, required this.article});
 
   @override
   State<TeleprompterPage> createState() => _TeleprompterPageState();
@@ -1367,8 +1359,6 @@ class _TeleprompterPageState extends State<TeleprompterPage>
     if (isFullScreen) {
       await exitFullScreen();
     }
-    _articleSettingsSaveTimer?.cancel();
-    await _saveArticleOverrides();
     await _endRemoteSessionIfMaster();
     if (context.mounted) Navigator.pop(context);
   }

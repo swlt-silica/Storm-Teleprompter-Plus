@@ -26,7 +26,7 @@ class TeleprompterSession {
   /// 是否正在播放
   bool _isPlaying = false;
 
-  /// 提词器设置覆盖（每个稿件独立）
+  /// 当前会话的提词设置快照，用于同步从端显示。
   Map<String, dynamic> _settingsOverride = {};
 
   /// 开始提词时的稿件快照，用于让从端避开旧缓存。

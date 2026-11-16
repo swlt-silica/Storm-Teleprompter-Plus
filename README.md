@@ -9,27 +9,34 @@
 | Android 跨应用悬浮提词 | 应用内提词 | 半透明台词窗可覆盖手机相机，自拍时同时看见人脸和台词；可移动、缩放、调字号和背景透明度、左右镜像、锁定触摸穿透及独立解锁 |
 | 悬浮窗播放与跟读 | 应用内自动滚动和离线语音跟随 | 悬浮窗复用本机播放状态和阅读位置，支持自动滚动、语音跟读及已确认的回读回退，并可从前台通知停止 |
 | Redmi / MIUI 权限指引 | 通用 Android 权限处理 | 针对 Redmi Note 11T Pro / MIUI 13.0.14 的悬浮窗、自启动、省电设置入口和中文配置指引；仍需手动授权 |
+| 本机提词设置共用 | 每篇稿件可保存独立设置 | 本机所有稿件共用字号、字体、行距、颜色、镜像、滚动方式和速度等设置，修改后切稿及重启均沿用；旧稿件专属值不再覆盖 |
 | 私有云端稿库 | 局域网连接同一服务端同步播放 | 新增独立的云稿库入口，Android / Windows 各设备可上传本机全部稿件及文件夹，覆盖云端唯一总备份；整库恢复到本机后独立、离线提词，保留设备设置 |
 | Markdown / GPT 上传 | 不含本 Fork 的云稿库上传接口 | 独立 Python / SQLite 服务、Markdown 上传 API、CLI 和 GPT Action 定义；以脚本编号为标题，同编号更新，备注不进入台词 |
 
 ### 下载安装
 
-**[前往本 Fork Releases 下载](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases)** · **[最新版 1.2.0](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/tag/v1.2.0-cloud)**
+**[前往本 Fork Releases 下载](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases)** · **[最新版 1.2.1](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/tag/v1.2.1-cloud)**
 
 | 安装包 | 用途 |
 | --- | --- |
-| [Android ARM64 · 1.2.0](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/download/v1.2.0-cloud/storm-cloud-android-arm64.apk) | 推荐用于 ARM64 手机，含悬浮窗、MIUI 指引及云端整库上传/恢复，可覆盖更新此前本 Fork 版本 |
-| [Windows x64 · 1.2.0](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/download/v1.2.0-cloud/storm-cloud-windows-x64.zip) | 完整解压后运行 exe；支持普通提词、镜像、离线语音跟随和云稿库，跨应用悬浮窗仅 Android 支持 |
+| [Android ARM64 · 1.2.1](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/download/v1.2.1-cloud/storm-cloud-android-arm64.apk) | 推荐用于 ARM64 手机，含悬浮窗、MIUI 指引及云端整库上传/恢复，可覆盖更新此前本 Fork 版本 |
+| [Windows x64 · 1.2.1](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/download/v1.2.1-cloud/storm-cloud-windows-x64.zip) | 完整解压后运行 exe；支持普通提词、镜像、离线语音跟随和云稿库，跨应用悬浮窗仅 Android 支持 |
 
 旧悬浮版 1.0.0 和 Redmi 适配版 1.0.1 也保存在 Releases，仅作历史版本，均不含云稿库。应用名为 **飓风提词器·悬浮版**，独立包名 `work.swlt.stormteleprompter`，可与原版并存。原版数据请先导出完整备份，再在本 Fork 中恢复；本 Fork 后续覆盖更新沿用同一签名。
 
 功能源码位于 [feature/android-floating-prompter](https://github.com/swlt-silica/Storm-Teleprompter-Plus/tree/feature/android-floating-prompter) 分支；发布包对应的具体提交见各 Release 的构建记录。
 
+### 本机统一提词设置（1.2.1）
+
+在任意脚本的 **提词器设置** 调整字号、字体、行距、颜色、镜像或滚动速度，其他脚本会沿用相同设置，退出或重启后也保留。普通提词与悬浮提词共用本机配置，旧脚本存储的专属设置不再参与显示，不会因调整外观而修改稿件时间或排序。
+
+此共用范围是同一设备内的所有脚本；各设备仍可按屏幕大小分别设置，云端稿库只上传稿件和文件夹。局域网远程同步播放继续跟随主控的临时会话配置。
+
 ### 云稿库使用
 
 在 **应用设置 → 云端稿库** 填写自己的 HTTPS 地址和上传令牌（可读写），所有设备都可以 **上传本机全部稿件** 或 **从云端整库恢复**。只需要下载的设备可仅配置只读令牌。
 
-**云端只保留一份当前总备份，下一次上传整库覆盖，不保留旧版本。** 包含全部稿件、任意标题、富文本、文件夹层级和排序。恢复也会整库替换本机稿件及文件夹，删除云端没有的本地内容，两项操作均须确认。字号、透明度、语音模型、连接令牌及全局设备设置不会上传或被恢复覆盖，同 ID 稿件保留本机已有的每稿提词设置。
+**云端只保留一份当前总备份，下一次上传整库覆盖，不保留旧版本。** 包含全部稿件、任意标题、富文本、文件夹层级和排序。恢复也会整库替换本机稿件及文件夹，删除云端没有的本地内容，两项操作均须确认。字号、透明度、语音模型、连接令牌及全局设备设置不会上传或被恢复覆盖，旧稿件中的专属设置字段仅为兼容备份保留，1.2.1 起统一使用本机共用提词设置。
 
 各设备下载后仍使用本机麦克风、模型和播放位置，离线独立提词。上传/恢复均需手动点击；最后成功上传的设备内容为准，不自动合并。GPT Markdown 上传更新当前唯一稿库，若要接续其他设备或 GPT 的新稿，请先恢复最新稿库再编辑上传。完整应用备份/恢复仍为独立文件操作。
 

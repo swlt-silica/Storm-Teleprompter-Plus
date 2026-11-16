@@ -156,7 +156,6 @@ void main() {
     await tester.pumpAndSettle();
     final page = tester.widget<TeleprompterPage>(find.byType(TeleprompterPage));
     expect(page.article.content, contains('临时正文'));
-    expect(page.persistArticleSettings, isFalse);
     expect(articles.writes, 0);
     Navigator.of(tester.element(find.byType(TeleprompterPage))).pop();
     await tester.pumpAndSettle();
