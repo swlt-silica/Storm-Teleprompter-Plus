@@ -77,9 +77,9 @@ HTTP 协议、服务端和本地导入可自动验证；用户手机安装后真
 - [x] 本机导出、全量原子恢复与跨实例串行写入；重复ID、文件夹环/孤立引用、超限数据拒绝，不产生半恢复。
 - [x] HTTP鉴权、完整校验、单次事务覆盖、并发写入完整性、失败不变及重启持久化。
 - [x] Android / Windows 中文界面、确认对话框、凭据迁移和设备设置保留。
-- [ ] 客户端+本地后端+实际服务端端到端验证；静态分析和相关回归通过。
+- [x] 客户端+本地后端+实际服务端端到端验证；静态分析和相关回归通过。
 - [x] 京东云原服务原位升级，原笔记站不受影响；有效数据操作先隔离测试。
-- [ ] 新版Android/Windows构建、校验并发布Releases；同步README开头功能对比、操作说明和连接信息。
+- [x] 新版Android/Windows构建、校验并发布Releases；同步README开头功能对比、操作说明和连接信息。
 
 既有1.1.0和历史安装包的Release发布任务继续，当前三份Release为草稿，尚未发布。旧Redmi本地最终签名包与该次CI原包哈希不同，不能替换为未经核验的历史CI包。GitHub内上传工作流已创建但首次因这一差异中止，无安装包因此被公开。
 
@@ -89,3 +89,9 @@ HTTP 协议、服务端和本地导入可自动验证；用户手机安装后真
 - 升级后代码SHA256 `ce6e823c1cfdf1f9db2b617a4e44b8e2ca33bc5e718e0efad2ae1f5a93fa9a74`，反代上传限额32MiB，nginx语法检查通过、平滑重载，服务active。
 - 实际Python HTTP + Flutter HTTP客户端 + ConnectionProvider + WebSocket + ArticleService全链路已验证A上传、B整库恢复并保留设备配置、B删旧增新上传、下一次恢复只保留新版。
 - 移动端持久化将多字符串键写入同一envelope，只有成功提交才发布内存，避免稿件和文件夹跨两个setString出现半恢复；桌面同一次原子文件替换。
+
+- 1.2.0应用源码c4cddebb60c1ca9a2e49616c68340df565cca495已通过本地分析及182项Flutter全量测试；CI 43819378371 Android/Windows均success，Android版本1.2.0/code2004、仅ARM64，原签名SHA256保持。新发布流水线43820527230从成功构建取原包、核对提交和校验值后上传Release成功。
+- 历史1.0.0、1.0.1、1.1.0安装包已发布各自历史Release，均经GitHub资产digest与本地验证记录比较。1.2.0发布标签v1.2.0-cloud避开继承自上游的旧v1.2.0标签；不改写上游标签。
+
+- 公网Releases/latest已核对为v1.2.0-cloud且draft=false；两安装包及构建/签名/SHA256附件齐全。Mac取回同包，Android版本/签名/架构验证及Windows x64 PE/Flutter DLL/data目录/ZIP完整性和SHA256验证均通过。用户outputs已更新为1.2.0，旧1.1产物保留于work/cloud-final-artifacts。
+- 默认分支v2与功能分支README开头功能对比和最新版下载入口已同步；功能源码仍在feature分支，PR不自动合并。所有验收清单已完成，手机/Windows实机及实际GPT Action保持明确待验收。
