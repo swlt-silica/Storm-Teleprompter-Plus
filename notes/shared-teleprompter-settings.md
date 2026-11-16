@@ -12,8 +12,12 @@
 - [x] 全部提词setter保存共用配置，切稿和重启持久化；旧专属值不覆盖。
 - [x] 常规/编辑器/临时稿入口一致，远程临时会话结束后共用设置保留。
 - [x] 相关回归、静态分析和全量测试通过。
-- [ ] 构建Android/Windows 1.2.1并发布Releases，更新README及交付文件。
+- [x] 构建Android/Windows 1.2.1并发布Releases，更新README及交付文件。
 
 ## 已验证
 
 188项Flutter测试全部通过，静态分析无问题。新增真实WebSocket和持久化测试，验证修改字号、行距、字距、颜色、背景、镜像、滚动方式/速度和阅读区域后，切稿及新SettingsProvider初始化继续沿用，Article JSON、更新时间及排序保持。新增4项导航回归覆盖主页A→B→A、编辑器入口以及远程在线/重连切稿快照；新页初始化重应用远程会话快照，避免旧页dispose清理造成丢失。
+
+- 应用源码30437d8dd7466e3620bc5c49a547c03432cec6d9；构建43830775364 Android/Windows均success，发布流水线43832707484核对源提交和SHA256后上传原包。1.2.1/code2005、ARM64、包名work.swlt.stormteleprompter和原签名均验证。
+- Windows ZIP SHA256、完整性、x86_64 PE、Flutter DLL和data目录验证通过。公开Release v1.2.1-cloud为最新版；源码和默认分支README首屏同步。用户outputs安装包更新为1.2.1；1.2.0等旧包在Releases归档。
+- 本次不修改京东云服务端，云端仍只备份稿件和文件夹，各设备提词设置独立。目标手机与用户Windows仍需实际使用验收。临时产物未清理。
