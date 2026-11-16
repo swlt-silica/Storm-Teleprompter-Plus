@@ -35,6 +35,100 @@ void main() {
     await service.replaceFolders([]);
   });
 
+  test('本机更新和云导入并发时均保留，不由旧快照覆盖新增稿件', () async {
+    final local = await service.createArticle(title: '本机稿', content: '旧正文');
+    await Future.wait([
+      service.updateArticle(local.id, content: '新正文'),
+      service.importCloudLibrary(_snapshot([_script('S-001', '云稿')])),
+      service.createArticle(title: '第二篇本机稿', content: '正文'),
+    ]).timeout(const Duration(seconds: 5));
+    final articles = await service.loadArticles();
+    expect(articles, hasLength(3));
+    expect(articles.singleWhere((item) => item.id == local.id).content, '新正文');
+    expect(articles.any((item) => item.id == 'cloud:$libraryId:S-001'), isTrue);
+  });
+
+  test('两个服务实例的并发导入共享队列，不会相互覆盖库内容', () async {
+    final other = ArticleService();
+    await other.init();
+    await Future.wait([
+      service.importCloudLibrary(_snapshot([_script('S-001', '稿一')])),
+      other.importCloudLibrary(_snapshot([_script('S-002', '稿二')])),
+    ]).timeout(const Duration(seconds: 5));
+    expect(
+      (await service.loadArticles()).map((item) => item.title),
+      unorderedEquals(['S-001', 'S-002']),
+    );
+  });
+
+  test('文件夹复制删除与云导入串行完成，内部多库操作不重入死锁', () async {
+    final folder = await service.createFolder(name: '父目录');
+    final child = await service.createFolder(name: '子目录', parentId: folder.id);
+    final local = await service.createArticle(
+      title: '子稿',
+      content: '正文',
+      folderId: child.id,
+    );
+    await Future.wait([
+      service.copyFolder(folder.id, null),
+      service.importCloudLibrary(_snapshot([_script('S-001', '云稿')])),
+      service.deleteFolder(child.id),
+      service.updateArticle(local.id, content: '更新后的正文'),
+    ]).timeout(const Duration(seconds: 5));
+    final articles = await service.loadArticles();
+    expect(articles, hasLength(3));
+    expect(
+      articles.singleWhere((item) => item.id == local.id).folderId,
+      isNull,
+    );
+    expect(
+      articles.singleWhere((item) => item.id == local.id).content,
+      '更新后的正文',
+    );
+    expect(articles.any((item) => item.id == 'cloud:$libraryId:S-001'), isTrue);
+    expect(
+      (await service.loadFolders()).any((item) => item.name == '父目录 - 副本'),
+      isTrue,
+    );
+  });
+
+  test('替换与导入按调用顺序执行，失败操作不会阻塞后续队列', () async {
+    final now = DateTime.utc(2026);
+    await Future.wait([
+      service.replaceArticles([
+        Article(
+          id: 'local',
+          title: '原有稿',
+          content: '正文',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ]),
+      service.importCloudLibrary(_snapshot([_script('S-001', '云稿')])),
+    ]).timeout(const Duration(seconds: 5));
+    final invalid = service.importCloudLibrary(
+      _snapshot([_script('bad/id', '坏编号')]),
+    );
+    final valid = service.createArticle(title: '失败后新增', content: '正文');
+    await expectLater(invalid, throwsFormatException);
+    await valid.timeout(const Duration(seconds: 5));
+    expect(await service.loadArticles(), hasLength(3));
+  });
+
+  test('损坏本地稿库时普通编辑和删除文件夹都拒绝写入原库', () async {
+    final folder = await service.createFolder(name: '原有目录');
+    final prefs = await AppPreferences.getInstance();
+    final originalFolders = prefs.getString(StorageConstants.foldersKey);
+    await prefs.setString(StorageConstants.articlesKey, 'damaged-local-data');
+    await expectLater(
+      service.createArticle(title: '新稿', content: '正文'),
+      throwsFormatException,
+    );
+    await expectLater(service.deleteFolder(folder.id), throwsFormatException);
+    expect(prefs.getString(StorageConstants.articlesKey), 'damaged-local-data');
+    expect(prefs.getString(StorageConstants.foldersKey), originalFolders);
+  });
+
   test('协议注册云稿库导入，重复同步幂等且无时间抖动', () async {
     final snapshot = _snapshot([_script('S-001', '第一句\n第二句')]);
     final first = await service.importCloudLibrary(snapshot);

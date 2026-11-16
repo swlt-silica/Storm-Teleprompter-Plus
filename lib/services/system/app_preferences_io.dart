@@ -47,7 +47,8 @@ class AppPreferences {
           }
         }
       } catch (error) {
-        debugPrint('[AppPreferences] 读取应用数据失败，将使用空数据: $error');
+        // Decoder exceptions can quote private connection tokens from the file.
+        debugPrint('[AppPreferences] 读取应用数据失败: ${error.runtimeType}');
       }
     }
     return AppPreferences._file(file, values);
@@ -63,9 +64,16 @@ class AppPreferences {
       return sharedPreferences.setString(key, value);
     }
 
-    _values![key] = value;
-    final snapshot = Map<String, String>.from(_values);
-    final write = _pendingWrite.then((_) => _writeSnapshot(snapshot));
+    final write = _pendingWrite.then((_) async {
+      final snapshot = Map<String, String>.from(_values!);
+      snapshot[key] = value;
+      await _writeSnapshot(snapshot);
+      // Publish only the committed snapshot; a failed disk write must leave
+      // readers on the previous data, and the next queued write can retry.
+      _values
+        ..clear()
+        ..addAll(snapshot);
+    });
     _pendingWrite = write.then<void>(
       (_) {},
       onError: (Object _, StackTrace _) {},
@@ -90,7 +98,8 @@ class AppPreferences {
         throw const FileSystemException('无法限制本机连接配置文件的读取权限');
       }
     }
-    if (await file.exists()) await file.delete();
+    // File.rename replaces an existing file. Do not delete the original first:
+    // if replacement fails, the previous snapshot must remain recoverable.
     await temporaryFile.rename(file.path);
   }
 }
