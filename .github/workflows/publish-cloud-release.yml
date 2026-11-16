@@ -1,0 +1,85 @@
+name: Publish verified cloud release packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Android and Windows build run ID
+        required: true
+        type: string
+      source_sha:
+        description: Exact source commit from that build
+        required: true
+        type: string
+      release_tag:
+        description: Existing draft release tag
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: publish-cloud-release
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: swlt-silica/Storm-Teleprompter-Plus
+      BUILD_RUN_ID: ${{ inputs.run_id }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - name: Verify build and download signed packages
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          run_id, sha, tag = (os.environ[key] for key in ('BUILD_RUN_ID', 'SOURCE_SHA', 'RELEASE_TAG'))
+          if not re.fullmatch(r'[0-9]+', run_id) or not re.fullmatch(r'[0-9a-f]{40}', sha) or not re.fullmatch(r'v[0-9]+[.][0-9]+[.][0-9]+-cloud', tag):
+              raise SystemExit('Invalid release inputs')
+          run = json.loads(subprocess.check_output(['gh', 'run', 'view', run_id, '--json', 'conclusion,headSha,workflowName']))
+          if run['conclusion'] != 'success' or run['headSha'] != sha or run['workflowName'] != 'Android floating prompter':
+              raise SystemExit('Build must be the successful verified workflow for the exact source commit')
+          release = json.loads(subprocess.check_output(['gh', 'release', 'view', tag, '--json', 'isDraft']))
+          if not release['isDraft']:
+              raise SystemExit('Only prepared draft releases may be populated')
+          for name, directory in [('storm-floating-arm64-' + sha, 'android'), ('storm-cloud-windows-x64-' + sha, 'windows')]:
+              subprocess.run(['gh', 'run', 'download', run_id, '--name', name, '--dir', directory], check=True)
+          PY
+      - name: Verify checksums and stage original packages
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json, os, shutil
+          destination = Path('release-packages')
+          destination.mkdir()
+          hashes = []
+          for directory, pattern, output in [('android', '*.apk', 'storm-cloud-android-arm64.apk'), ('windows', '*.zip', 'storm-cloud-windows-x64.zip')]:
+              source_dir = Path(directory)
+              files = list(source_dir.glob(pattern))
+              if len(files) != 1:
+                  raise SystemExit('Expected exactly one installable package')
+              source = files[0]
+              checksum_lines = (source_dir / 'SHA256SUMS.txt').read_text(encoding='utf-8-sig').splitlines()
+              expected = next(line.split()[0] for line in checksum_lines if line.split()[-1].lstrip('*./') == source.name)
+              actual = hashlib.sha256(source.read_bytes()).hexdigest()
+              if actual != expected:
+                  raise SystemExit('Artifact checksum mismatch')
+              metadata = json.loads((source_dir / 'build.json').read_text(encoding='utf-8-sig'))
+              if metadata['commit'] != os.environ['SOURCE_SHA']:
+                  raise SystemExit('Artifact source mismatch')
+              metadata.update(sha256=actual, bytes=source.stat().st_size, asset=output)
+              shutil.copy2(source, destination / output)
+              (destination / (directory + '-build.json')).write_text(json.dumps(metadata, indent=2) + '\n')
+              hashes.append(actual + '  ' + output)
+              print('Verified', output, actual)
+          (destination / 'SHA256SUMS.txt').write_text('\n'.join(hashes) + '\n')
+          shutil.copy2('android/signature.txt', destination / 'android-signature.txt')
+          PY
+      - name: Upload packages and verification records to draft
+        run: gh release upload "$RELEASE_TAG" release-packages/* --clobber
