@@ -1245,6 +1245,18 @@ class AsrService with ChangeNotifier {
           echoCancel: false,
           noiseSuppress: false,
           device: inputDevice,
+          // Do not request playback audio focus on Android: a camera taking
+          // focus would otherwise silently pause the recognition input stream.
+          audioInterruption: Platform.isAndroid
+              ? AudioInterruptionMode.none
+              : AudioInterruptionMode.pause,
+          // Recognition is non-private audio input; avoid call/camcorder routing
+          // so an enabled accessibility service can share input with the camera.
+          androidConfig: const AndroidRecordConfig(
+            audioSource: AndroidAudioSource.voiceRecognition,
+            audioManagerMode: AudioManagerMode.modeNormal,
+            manageBluetooth: false,
+          ),
         ),
       );
       _isRunning = true;

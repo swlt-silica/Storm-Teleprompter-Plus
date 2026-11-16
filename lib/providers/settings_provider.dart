@@ -1,34 +1,31 @@
 import 'package:flutter/material.dart';
 import '../backend/ws_protocol.dart';
 import '../models/app_settings.dart';
+import '../models/floating_overlay_settings.dart';
 import 'connection_provider.dart';
 
 /// 应用设置状态管理（前端）
 ///
 /// 通过 WebSocket 与后端通信，管理应用设置的读取、保存。
-/// 同时支持稿件级别的设置覆盖（提词器设置与应用设置分离）。
+/// 本机全部稿件共用提词设置；远程同步播放仅叠加临时会话配置。
 class SettingsProvider with ChangeNotifier {
   AppSettings _settings = const AppSettings();
   bool _isLoading = false;
 
   ConnectionProvider? _connection;
 
-  // ─── 稿件覆盖设置 ──────────────────────────────────────
-  Map<String, dynamic> _articleOverrides = {};
-  bool _articleOverridesActive = false;
+  // ─── 远程播放的临时配置（不写入本机共用设置） ─────────────
+  Map<String, dynamic> _remoteOverrides = {};
+  bool _remoteOverridesActive = false;
 
   VoidCallback? _connectionListener;
   AppSettings get settings => _settings;
   bool get isLoading => _isLoading;
 
-  /// 合并稿件覆盖后的设置（提词器页面使用）
-  AppSettings get mergedSettings => _articleOverrides.isNotEmpty
-      ? _settings.mergeOverrides(_articleOverrides)
+  /// 本机使用统一设置；远程播放时使用服务端的临时会话配置。
+  AppSettings get mergedSettings => _remoteOverrides.isNotEmpty
+      ? _settings.mergeOverrides(_remoteOverrides)
       : _settings;
-
-  /// 当前活跃的稿件覆盖
-  Map<String, dynamic> get articleOverrides =>
-      Map.unmodifiable(_articleOverrides);
 
   /// 绑定连接
   void bindConnection(ConnectionProvider connection) {
@@ -38,8 +35,8 @@ class SettingsProvider with ChangeNotifier {
     _connection = connection;
     _connectionListener = () {
       if (!connection.isConnected && !connection.canRetryRemoteConnection) {
-        _articleOverrides = {};
-        _articleOverridesActive = false;
+        _remoteOverrides = {};
+        _remoteOverridesActive = false;
         _isLoading = false;
         notifyListeners();
       }
@@ -47,30 +44,22 @@ class SettingsProvider with ChangeNotifier {
     connection.addListener(_connectionListener!);
   }
 
-  /// 加载稿件覆盖设置
-  void loadArticleOverrides(
-    Map<String, dynamic>? overrides, {
-    bool notify = true,
-  }) {
-    final next = _settings
-        .mergeOverrides(Map<String, dynamic>.from(overrides ?? const {}))
-        .toTeleprompterMap();
-    final unchanged =
-        _articleOverridesActive && _mapEquals(_articleOverrides, next);
-    _articleOverridesActive = true;
-    if (unchanged) return;
-    _articleOverrides = next;
-    if (notify) notifyListeners();
+  /// 开始本机稿件时不再载入旧稿件的专属外观，直接沿用设备共用设置。
+  void useSharedTeleprompterSettings({bool notify = true}) {
+    clearRemoteTeleprompterSettings(notify: notify);
   }
 
-  void applyRemoteTeleprompterSettings(Map<String, dynamic> settings) {
+  void applyRemoteTeleprompterSettings(
+    Map<String, dynamic> settings, {
+    bool notify = true,
+  }) {
     final next = _settings.mergeOverrides(settings).toTeleprompterMap();
     final unchanged =
-        _articleOverridesActive && _mapEquals(_articleOverrides, next);
-    _articleOverridesActive = true;
+        _remoteOverridesActive && _mapEquals(_remoteOverrides, next);
+    _remoteOverridesActive = true;
     if (unchanged) return;
-    _articleOverrides = next;
-    notifyListeners();
+    _remoteOverrides = next;
+    if (notify) notifyListeners();
   }
 
   void applyRemoteSyncedRuntimeSettings(Map<String, dynamic> settings) {
@@ -80,8 +69,8 @@ class SettingsProvider with ChangeNotifier {
         (value) => value.name == modeName,
         orElse: () => mergedSettings.scrollMode,
       );
-      if (_articleOverrides['scrollMode'] != mode.name) {
-        _articleOverrides['scrollMode'] = mode.name;
+      if (_remoteOverrides['scrollMode'] != mode.name) {
+        _remoteOverrides['scrollMode'] = mode.name;
         changed = true;
       }
     }
@@ -89,23 +78,21 @@ class SettingsProvider with ChangeNotifier {
       final value = settings['wpm'];
       if (value is num) {
         final next = value.toInt();
-        if (_articleOverrides['wpm'] != next) {
-          _articleOverrides['wpm'] = next;
+        if (_remoteOverrides['wpm'] != next) {
+          _remoteOverrides['wpm'] = next;
           changed = true;
         }
       }
     }
     for (final key in ['autoScrollMode', 'pixelsPerSecond']) {
-      if (settings.containsKey(key) &&
-          _articleOverrides[key] != settings[key]) {
-        _articleOverrides[key] = settings[key];
+      if (settings.containsKey(key) && _remoteOverrides[key] != settings[key]) {
+        _remoteOverrides[key] = settings[key];
         changed = true;
       }
     }
     if (changed) notifyListeners();
   }
 
-  /// 清除稿件覆盖设置
   bool _mapEquals(Map<String, dynamic> a, Map<String, dynamic> b) {
     if (identical(a, b)) return true;
     if (a.length != b.length) return false;
@@ -117,25 +104,31 @@ class SettingsProvider with ChangeNotifier {
     return true;
   }
 
-  void clearArticleOverrides({bool notify = true}) {
-    if (!_articleOverridesActive && _articleOverrides.isEmpty) return;
-    _articleOverridesActive = false;
-    _articleOverrides = {};
+  void clearRemoteTeleprompterSettings({bool notify = true}) {
+    if (!_remoteOverridesActive && _remoteOverrides.isEmpty) return;
+    _remoteOverridesActive = false;
+    _remoteOverrides = {};
     if (notify) notifyListeners();
   }
 
-  /// 内部辅助：在当前稿件覆盖激活时写入覆盖层，否则写入全局设置
+  /// 所有本机稿件统一写入 AppSettings，切稿及重启后继续生效。
   Future<void> _setAndSave({required Map<String, dynamic> overrideData}) async {
-    if (_articleOverridesActive) {
-      // 播放稿件时只更新当前稿件的完整设置快照。
-      _articleOverrides.addAll(overrideData);
+    final connection = _connection;
+    if (connection != null &&
+        (connection.isRemote || connection.canRetryRemoteConnection)) {
+      // 远程显示端不能把播放会话设置保存到服务端全局配置。
+      _remoteOverrides = mergedSettings
+          .mergeOverrides(overrideData)
+          .toTeleprompterMap();
+      _remoteOverridesActive = true;
       notifyListeners();
-    } else {
-      // AppSettings 是提词器字段转换的唯一入口，避免 Provider 重复维护映射。
-      _settings = _settings.mergeOverrides(overrideData);
-      notifyListeners();
-      await _saveSettings();
+      return;
     }
+    _remoteOverrides = {};
+    _remoteOverridesActive = false;
+    _settings = _settings.mergeOverrides(overrideData);
+    notifyListeners();
+    await _saveSettings();
     _syncTeleprompterSettingsToBackend();
   }
 
@@ -193,6 +186,13 @@ class SettingsProvider with ChangeNotifier {
     }
   }
 
+  /// 悬浮窗外观与普通提词设置一样，由本设备的全部稿件共用。
+  Future<void> setFloatingOverlay(FloatingOverlaySettings value) async {
+    _settings = _settings.copyWith(floatingOverlay: value);
+    notifyListeners();
+    await _saveSettings();
+  }
+
   /// 更新字体大小
   Future<void> setFontSize(double fontSize) async {
     await _setAndSave(overrideData: {'fontSize': fontSize});
@@ -205,15 +205,7 @@ class SettingsProvider with ChangeNotifier {
 
   /// 更新滚动模式
   Future<void> setScrollMode(ScrollMode mode) async {
-    if (_articleOverridesActive) {
-      _articleOverrides['scrollMode'] = mode.name;
-      notifyListeners();
-    } else {
-      _settings = _settings.copyWith(scrollMode: mode);
-      notifyListeners();
-      await _saveSettings();
-    }
-    _syncTeleprompterSettingsToBackend();
+    await _setAndSave(overrideData: {'scrollMode': mode.name});
   }
 
   /// 更新 WPM
@@ -433,7 +425,7 @@ class SettingsProvider with ChangeNotifier {
     );
   }
 
-  /// 更新全局快速模式设置，不写入当前稿件覆盖层。
+  /// 更新设备共用的快速模式设置。
   Future<void> setQuickMode({
     bool? enabled,
     bool? autoSave,

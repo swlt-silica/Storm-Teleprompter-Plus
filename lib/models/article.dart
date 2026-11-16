@@ -8,7 +8,7 @@ class Article {
   final DateTime createdAt;
   final DateTime updatedAt;
   final int sortOrder;
-  final Map<String, dynamic>? teleprompterSettings; // 每稿独立的提词器设置
+  final Map<String, dynamic>? teleprompterSettings; // 旧版逐稿设置：保留备份兼容，本机显示不再应用
   final String? folderId; // 所属文件夹ID，null表示根目录
 
   Article({

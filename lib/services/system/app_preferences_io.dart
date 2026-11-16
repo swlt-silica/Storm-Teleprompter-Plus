@@ -9,15 +9,14 @@ import '../../utils/constants.dart';
 import 'app_data_directory.dart';
 
 class AppPreferences {
-  AppPreferences._shared(this._sharedPreferences)
-    : _file = null,
-      _values = null;
+  AppPreferences._shared(this._sharedPreferences, this._values) : _file = null;
 
   AppPreferences._file(this._file, this._values) : _sharedPreferences = null;
 
   final SharedPreferences? _sharedPreferences;
   final File? _file;
-  final Map<String, String>? _values;
+  final Map<String, String> _values;
+  static const _sharedSnapshotKey = '__storm_committed_strings_v1';
   Future<void> _pendingWrite = Future<void>.value();
 
   static Future<AppPreferences>? _instance;
@@ -28,7 +27,24 @@ class AppPreferences {
 
   static Future<AppPreferences> _create() async {
     if (!Platform.isWindows && !Platform.isLinux && !Platform.isMacOS) {
-      return AppPreferences._shared(await SharedPreferences.getInstance());
+      final preferences = await SharedPreferences.getInstance();
+      final values = <String, String>{
+        for (final key in preferences.getKeys())
+          if (key != _sharedSnapshotKey && preferences.get(key) is String)
+            key: preferences.getString(key)!,
+      };
+      final committed = preferences.getString(_sharedSnapshotKey);
+      if (committed != null) {
+        final decoded = jsonDecode(committed);
+        if (decoded is! Map ||
+            decoded.entries.any(
+              (entry) => entry.key is! String || entry.value is! String,
+            )) {
+          throw const FormatException('本机配置快照损坏，请先恢复有效备份');
+        }
+        values.addAll(Map<String, String>.from(decoded));
+      }
+      return AppPreferences._shared(preferences, values);
     }
 
     final dataDirectory = await getAppDataDirectory();
@@ -47,31 +63,47 @@ class AppPreferences {
           }
         }
       } catch (error) {
-        debugPrint('[AppPreferences] 读取应用数据失败，将使用空数据: $error');
+        // Decoder exceptions can quote private connection tokens from the file.
+        debugPrint('[AppPreferences] 读取应用数据失败: ${error.runtimeType}');
       }
     }
     return AppPreferences._file(file, values);
   }
 
   String? getString(String key) {
-    return _sharedPreferences?.getString(key) ?? _values?[key];
+    return _values[key];
   }
 
-  Future<bool> setString(String key, String value) async {
-    final sharedPreferences = _sharedPreferences;
-    if (sharedPreferences != null) {
-      return sharedPreferences.setString(key, value);
-    }
+  Future<bool> setString(String key, String value) => setValues({key: value});
 
-    _values![key] = value;
-    final snapshot = Map<String, String>.from(_values);
-    final write = _pendingWrite.then((_) => _writeSnapshot(snapshot));
-    _pendingWrite = write.then<void>(
+  /// One durable commit for all keys. Mobile preferences use a single JSON
+  /// envelope, because several SharedPreferences.setString calls are not a
+  /// transaction. Old individual string keys are migrated on the first write.
+  Future<bool> setValues(Map<String, String> values) {
+    if (values.containsKey(_sharedSnapshotKey)) {
+      throw ArgumentError('保留的配置键不可直接写入');
+    }
+    final changes = Map<String, String>.from(values);
+    final result = _pendingWrite.then((_) async {
+      final snapshot = Map<String, String>.from(_values)..addAll(changes);
+      final shared = _sharedPreferences;
+      if (shared != null) {
+        if (!await shared.setString(_sharedSnapshotKey, jsonEncode(snapshot)))
+          return false;
+      } else {
+        await _writeSnapshot(snapshot);
+      }
+      // Readers see the complete batch only after its durable write succeeds.
+      _values
+        ..clear()
+        ..addAll(snapshot);
+      return true;
+    });
+    _pendingWrite = result.then<void>(
       (_) {},
       onError: (Object _, StackTrace _) {},
     );
-    await write;
-    return true;
+    return result;
   }
 
   Future<void> _writeSnapshot(Map<String, String> snapshot) async {
@@ -79,7 +111,19 @@ class AppPreferences {
     await file.parent.create(recursive: true);
     final temporaryFile = File('${file.path}.tmp');
     await temporaryFile.writeAsString(jsonEncode(snapshot), flush: true);
-    if (await file.exists()) await file.delete();
+    // Connection tokens now live in these device-local preferences. Keep the
+    // portable Unix file private before it replaces the previous snapshot.
+    if (!Platform.isWindows) {
+      final result = await Process.run('/bin/chmod', [
+        '600',
+        temporaryFile.path,
+      ]);
+      if (result.exitCode != 0) {
+        throw const FileSystemException('无法限制本机连接配置文件的读取权限');
+      }
+    }
+    // File.rename replaces an existing file. Do not delete the original first:
+    // if replacement fails, the previous snapshot must remain recoverable.
     await temporaryFile.rename(file.path);
   }
 }

@@ -32,7 +32,7 @@ void main() {
     'progressShowCurrentTime',
   };
 
-  test('all manuscript teleprompter settings survive map round trip', () {
+  test('all shared teleprompter settings survive map round trip', () {
     final source = const AppSettings().copyWith(
       fontSize: 83,
       lineHeight: 2.1,
@@ -64,14 +64,26 @@ void main() {
     expect(restored.toTeleprompterMap(), data);
   });
 
-  test('loading a manuscript creates a complete independent snapshot', () {
+  test('本机切换稿件沿用共用提词设置', () async {
     final provider = SettingsProvider();
     addTearDown(provider.dispose);
+    provider.useSharedTeleprompterSettings();
+    await provider.setFontSize(72);
+    await provider.setLineHeight(2.1);
+    await provider.toggleMirrorMode();
+    final shared = provider.settings.toTeleprompterMap();
 
-    provider.loadArticleOverrides({'fontSize': 72});
+    provider.useSharedTeleprompterSettings();
+    expect(provider.mergedSettings.toTeleprompterMap(), shared);
+    expect(provider.mergedSettings.fontSize, 72);
+    expect(provider.mergedSettings.lineHeight, 2.1);
+    expect(provider.mergedSettings.mirrorMode, isTrue);
 
-    expect(provider.articleOverrides.keys.toSet(), expectedKeys);
-    expect(provider.articleOverrides['fontSize'], 72);
+    provider.applyRemoteTeleprompterSettings({'fontSize': 28});
+    expect(provider.mergedSettings.fontSize, 28);
+    expect(provider.settings.fontSize, 72);
+    provider.clearRemoteTeleprompterSettings();
+    expect(provider.mergedSettings.toTeleprompterMap(), shared);
   });
 
   test('article JSON export and import retain teleprompter settings', () {

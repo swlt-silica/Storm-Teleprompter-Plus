@@ -9,13 +9,15 @@ import 'package:window_manager/window_manager.dart';
 import '../backend/ws_protocol.dart';
 import '../models/article.dart';
 import '../models/app_settings.dart';
-import '../providers/article_provider.dart';
 import '../providers/connection_provider.dart';
 import '../providers/teleprompter_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../services/asr_service.dart';
+import '../services/overlay/floating_teleprompter_bridge.dart';
+import '../services/overlay/floating_teleprompter_controller.dart';
+import '../widgets/teleprompter/floating_overlay_sheet.dart';
 import '../utils/constants.dart';
 import '../widgets/teleprompter/teleprompter_text_layer.dart';
 import '../widgets/teleprompter/auto_speed_picker.dart';
@@ -38,14 +40,7 @@ part 'teleprompter/teleprompter_logic.dart';
 class TeleprompterPage extends StatefulWidget {
   final Article article;
 
-  /// 临时稿件仅用于当前会话，不尝试更新稿件数据库。
-  final bool persistArticleSettings;
-
-  const TeleprompterPage({
-    super.key,
-    required this.article,
-    this.persistArticleSettings = true,
-  });
+  const TeleprompterPage({super.key, required this.article});
 
   @override
   State<TeleprompterPage> createState() => _TeleprompterPageState();
@@ -54,6 +49,9 @@ class TeleprompterPage extends StatefulWidget {
 class _TeleprompterPageState extends State<TeleprompterPage>
     with WidgetsBindingObserver, TeleprompterPageLogic {
   bool _showSettings = false;
+  FloatingTeleprompterController? _floatingOverlay;
+  bool _overlaySheetVisible = false;
+  bool _pendingOverlaySettings = false;
   bool _wasRemoteClient = false;
   bool _remoteRetrying = false;
   bool _isExiting = false;
@@ -67,6 +65,15 @@ class _TeleprompterPageState extends State<TeleprompterPage>
   @override
   void initState() {
     super.initState();
+    if (FloatingTeleprompterBridge.isSupported) {
+      _floatingOverlay = FloatingTeleprompterController(
+        teleprompter: context.read<TeleprompterProvider>(),
+        settings: context.read<SettingsProvider>(),
+        connection: context.read<ConnectionProvider>(),
+        onSettingsRequested: () =>
+            unawaited(_showFloatingSettings(fromNative: true)),
+      );
+    }
     HardwareKeyboard.instance.addHandler(_handleGlobalShortcutKey);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _isTextInputFocused()) return;
@@ -76,10 +83,62 @@ class _TeleprompterPageState extends State<TeleprompterPage>
 
   @override
   void dispose() {
+    _floatingOverlay?.dispose();
     HardwareKeyboard.instance.removeHandler(_handleGlobalShortcutKey);
     _remoteRetryTimer?.cancel();
     _pageFocusNode.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    final overlay = _floatingOverlay;
+    if (overlay != null) {
+      unawaited(
+        overlay.refreshStatus().catchError((Object error) {
+          if (mounted && overlay.active) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(floatingOverlayError(error))),
+            );
+          }
+        }),
+      );
+    }
+    if (_pendingOverlaySettings) {
+      _pendingOverlaySettings = false;
+      unawaited(_showFloatingSettings());
+    }
+  }
+
+  Future<void> _showFloatingSettings({bool fromNative = false}) async {
+    final overlay = _floatingOverlay;
+    if (!mounted || overlay == null || _overlaySheetVisible) return;
+    if (fromNative) {
+      try {
+        await overlay.stop(pause: true);
+      } catch (_) {
+        // 原生窗口可能已被系统移除，仍允许用户回到设置修复权限。
+      }
+      if (!mounted) return;
+      if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+        _pendingOverlaySettings = true;
+        return;
+      }
+    }
+    _overlaySheetVisible = true;
+    try {
+      await showFloatingOverlaySheet(
+        context,
+        controller: overlay,
+        settings: context.read<SettingsProvider>(),
+        prepareOrientation: () async {
+          if (isFullScreen) await exitFullScreen();
+        },
+      );
+    } finally {
+      _overlaySheetVisible = false;
+    }
   }
 
   bool _handleGlobalShortcutKey(KeyEvent event) {
@@ -605,6 +664,16 @@ class _TeleprompterPageState extends State<TeleprompterPage>
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               ),
+              if (_floatingOverlay != null)
+                TextButton.icon(
+                  onPressed: () => unawaited(_showFloatingSettings()),
+                  icon: const Icon(Icons.picture_in_picture_alt, size: 20),
+                  label: const Text('悬浮提词'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.textPrimary,
+                    minimumSize: const Size(44, 44),
+                  ),
+                ),
               // 全屏按钮
               IconButton(
                 icon: Icon(
@@ -1117,9 +1186,11 @@ class _TeleprompterPageState extends State<TeleprompterPage>
       ),
     );
     if (openSettings == true && mounted) {
-      await Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (_) => const SettingsPage()));
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => const SettingsPage(cloudSyncAllowed: false),
+        ),
+      );
       if (!mounted) return false;
       final selectedId = settingsProvider.settings.asrModelId;
       return selectedId.isNotEmpty &&
@@ -1288,8 +1359,6 @@ class _TeleprompterPageState extends State<TeleprompterPage>
     if (isFullScreen) {
       await exitFullScreen();
     }
-    _articleSettingsSaveTimer?.cancel();
-    await _saveArticleOverrides();
     await _endRemoteSessionIfMaster();
     if (context.mounted) Navigator.pop(context);
   }

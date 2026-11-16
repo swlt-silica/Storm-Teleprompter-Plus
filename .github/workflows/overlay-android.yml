@@ -1,0 +1,188 @@
+name: Android floating prompter
+
+on:
+  push:
+    branches: [feature/android-floating-prompter]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: overlay-android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.44.1'
+  # Match the hosted source recorded in pubspec.lock; do not silently re-resolve versions.
+  PUB_HOSTED_URL: https://pub.flutter-io.cn
+
+jobs:
+  android:
+    name: Verify and build ARM64 APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # The official SDK tag is available even when the release-index endpoint is not.
+      - name: Cache Flutter SDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/flutter
+          key: flutter-${{ runner.os }}-${{ runner.arch }}-${{ env.FLUTTER_VERSION }}
+
+      - name: Install Flutter from the official tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_DIR="$RUNNER_TEMP/flutter"
+          if [ ! -d "$SDK_DIR/.git" ]; then
+            git clone --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$SDK_DIR"
+          fi
+          if [ "$(git -C "$SDK_DIR" describe --tags --exact-match)" != "$FLUTTER_VERSION" ]; then
+            echo "::error::Cached Flutter SDK does not match $FLUTTER_VERSION"
+            exit 1
+          fi
+          printf '%s\n' "$SDK_DIR/bin" >> "$GITHUB_PATH"
+          "$SDK_DIR/bin/flutter" --version
+
+      - name: Resolve dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Analyze
+        run: flutter analyze --no-pub
+
+      - name: Test
+        run: flutter test --no-pub
+
+      - name: Test cloud library server
+        run: python3 -m unittest discover -s server/cloud_library/tests -v
+
+      - name: Configure fork signing
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Configure all four Android signing secrets in this fork before building. Missing: $name"
+              exit 1
+            fi
+          done
+          umask 077
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/storm-overlay.jks"
+          {
+            printf 'storeFile=%s\n' "$RUNNER_TEMP/storm-overlay.jks"
+            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+          } > android/key.properties
+
+      - name: Build signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_VERSION="overlay-${GITHUB_SHA:0:8}"
+          flutter build apk --release --no-pub --split-per-abi --target-platform android-arm64 \
+            --dart-define=APP_VERSION="$APP_VERSION"
+          mkdir -p artifacts
+          APK="artifacts/storm-floating-${GITHUB_SHA:0:8}-arm64.apk"
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "$APK"
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK" > artifacts/signature.txt
+          (
+            cd artifacts
+            sha256sum ./*.apk > SHA256SUMS.txt
+          )
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          metadata = {
+              "version": "overlay-" + os.environ["GITHUB_SHA"][:8],
+              "commit": os.environ["GITHUB_SHA"],
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "run_url": f'{os.environ["GITHUB_SERVER_URL"]}/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{os.environ["GITHUB_RUN_ID"]}',
+              "flutter": os.environ["FLUTTER_VERSION"],
+              "abi": "arm64-v8a",
+              "signing": "fork-owned release key",
+              "validation": ["flutter analyze --no-pub", "flutter test --no-pub", "apksigner verify"],
+          }
+          pathlib.Path("artifacts/build.json").write_text(json.dumps(metadata, indent=2) + "\n")
+          PY
+
+      - name: Upload installable APK and verification metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: storm-floating-arm64-${{ github.sha }}
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove runner signing files
+        if: always()
+        shell: bash
+        run: rm -f android/key.properties "$RUNNER_TEMP/storm-overlay.jks"
+
+  windows:
+    name: Build Windows x64 with cloud library
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/flutter
+          key: flutter-${{ runner.os }}-${{ runner.arch }}-${{ env.FLUTTER_VERSION }}
+      - name: Install Flutter from official tag
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sdk = Join-Path $env:RUNNER_TEMP 'flutter'
+          if (!(Test-Path "$sdk/.git")) {
+            git clone --depth 1 --branch $env:FLUTTER_VERSION https://github.com/flutter/flutter.git $sdk
+            if ($LASTEXITCODE -ne 0) { throw 'Flutter checkout failed' }
+          }
+          $tag = git -C $sdk describe --tags --exact-match
+          if ($LASTEXITCODE -ne 0 -or $tag -ne $env:FLUTTER_VERSION) { throw 'Unexpected Flutter version' }
+          "$sdk/bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          & "$sdk/bin/flutter.bat" --version
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter setup failed' }
+      - name: Resolve locked dependencies
+        run: flutter pub get --enforce-lockfile
+      - name: Build Windows release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = 'cloud-' + $env:GITHUB_SHA.Substring(0, 8)
+          flutter build windows --release --no-pub --dart-define=APP_VERSION=$version
+          if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          $zip = "artifacts/storm-cloud-windows-x64-$($env:GITHUB_SHA.Substring(0,8)).zip"
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath $zip
+          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path $zip -Leaf)" | Out-File artifacts/SHA256SUMS.txt -Encoding utf8
+          @{
+            repository = $env:GITHUB_REPOSITORY
+            commit = $env:GITHUB_SHA
+            version = $version
+            flutter = $env:FLUTTER_VERSION
+            platform = 'windows-x64'
+            deviceTesting = 'Build verified; not yet run on user Windows device'
+          } | ConvertTo-Json | Out-File artifacts/build.json -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: storm-cloud-windows-x64-${{ github.sha }}
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 30

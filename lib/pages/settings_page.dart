@@ -21,6 +21,7 @@ import '../theme/app_colors.dart';
 import '../widgets/common/app_color_picker_dialog.dart';
 import '../widgets/settings/about_settings_section.dart';
 import '../widgets/settings/quick_mode_settings_section.dart';
+import '../widgets/settings/cloud_library_settings_section.dart';
 
 part 'settings/settings_asr_advanced_dialog.dart';
 part 'settings/settings_backup_section.dart';
@@ -34,7 +35,9 @@ part 'settings/settings_backup_section.dart';
 /// - 完整备份与恢复
 /// - 设置重置与关于信息
 class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key});
+  const SettingsPage({super.key, this.cloudSyncAllowed = true});
+
+  final bool cloudSyncAllowed;
 
   @override
   Widget build(BuildContext context) {
@@ -92,6 +95,10 @@ class SettingsPage extends StatelessWidget {
                   ],
 
                   if (!kIsWeb) ...[
+                    _buildSectionHeader(context, '云端稿库'),
+                    const SizedBox(height: 12),
+                    CloudLibrarySettingsSection(syncAllowed: cloudSyncAllowed),
+                    const SizedBox(height: 24),
                     _buildSectionHeader(context, '备份与恢复'),
                     const SizedBox(height: 12),
                     _buildBackupSection(context, connection),

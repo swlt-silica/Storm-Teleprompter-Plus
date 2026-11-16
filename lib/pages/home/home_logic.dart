@@ -295,7 +295,7 @@ mixin HomeLogic on State<HomePage>, HomeQuickMode {
     if (!mounted || !context.read<ConnectionProvider>().isRemote) return;
     if (!_acceptRemoteSessionUpdate(message)) return;
     context.read<TeleprompterProvider>().stopAll();
-    context.read<SettingsProvider>().clearArticleOverrides();
+    context.read<SettingsProvider>().clearRemoteTeleprompterSettings();
     if (_remoteTeleprompterRouteActive && Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
     }
@@ -1069,7 +1069,7 @@ mixin HomeLogic on State<HomePage>, HomeQuickMode {
     final teleprompterProvider = this.context.read<TeleprompterProvider>();
     final settingsProvider = this.context.read<SettingsProvider>();
     final connection = this.context.read<ConnectionProvider>();
-    settingsProvider.loadArticleOverrides(article.teleprompterSettings);
+    settingsProvider.useSharedTeleprompterSettings();
     teleprompterProvider.loadScript(article.id, article.content);
     if (connection.isLocal && connection.isConnected) {
       connection.send(

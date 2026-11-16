@@ -1,0 +1,31 @@
+[Unit]
+Description=Storm private cloud script library
+After=network.target
+
+[Service]
+Type=simple
+User=stormlibrary
+Group=stormlibrary
+WorkingDirectory=/opt/storm-cloud-library/app
+Environment=CLOUD_LIBRARY_DATA_DIR=/opt/storm-cloud-library/data
+Environment=CLOUD_LIBRARY_PORT=18431
+Environment=CLOUD_LIBRARY_READ_TOKEN_FILE=/opt/storm-cloud-library/private/read-token
+Environment=CLOUD_LIBRARY_UPLOAD_TOKEN_FILE=/opt/storm-cloud-library/private/upload-token
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m cloud_library.app
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/storm-cloud-library/data
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CPUQuota=50%
+MemoryMax=192M
+TasksMax=24
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

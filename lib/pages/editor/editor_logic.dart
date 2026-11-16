@@ -266,7 +266,7 @@ mixin EditorLogic on State<EditorPage> {
 
     final teleprompterProvider = context.read<TeleprompterProvider>();
     final settingsProvider = context.read<SettingsProvider>();
-    settingsProvider.loadArticleOverrides(article.teleprompterSettings);
+    settingsProvider.useSharedTeleprompterSettings();
     teleprompterProvider.loadScript(article.id, article.content);
     final connection = context.read<ConnectionProvider>();
     if (connection.isLocal && connection.isConnected) {
@@ -292,10 +292,7 @@ mixin EditorLogic on State<EditorPage> {
             ChangeNotifierProvider.value(value: settingsProvider),
             ChangeNotifierProvider.value(value: _articleProvider),
           ],
-          child: TeleprompterPage(
-            article: article,
-            persistArticleSettings: autoSaveEnabled || _savedArticle != null,
-          ),
+          child: TeleprompterPage(article: article),
         ),
       ),
     );

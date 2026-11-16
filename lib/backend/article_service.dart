@@ -1,5 +1,7 @@
 import 'dart:convert';
 import '../models/article.dart';
+import '../models/cloud_library_snapshot.dart';
+import '../models/cloud_library_backup.dart';
 import '../models/folder.dart';
 import '../services/app_preferences.dart';
 import '../utils/constants.dart';
@@ -13,6 +15,112 @@ import 'ws_server.dart';
 class ArticleService {
   late AppPreferences _prefs;
   int _idCounter = 0;
+
+  // Every instance shares the same AppPreferences store. Serialize the entire
+  // read/modify/write operation, not just the final write, across all instances.
+  static Future<void> _mutationTail = Future<void>.value();
+
+  Future<T> _mutate<T>(Future<T> Function() operation) {
+    final result = _mutationTail.then((_) => operation());
+    // A rejected operation must not poison the queue for later valid writes.
+    _mutationTail = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
+  }
+
+  /// These public wrappers own the queue. Helpers never call another public
+  /// mutation, so recursive folder operations cannot wait on their own lock.
+  Future<CloudLibraryImportResult> importCloudLibrary(
+    Map<String, dynamic> json,
+  ) => _mutate(() => _importCloudLibraryUnlocked(json));
+
+  Future<CloudLibraryBackup> exportCloudBackup() => _mutate(() async {
+    final backup = CloudLibraryBackup(
+      createdAt: DateTime.now().toUtc(),
+      articles: _loadArticlesStrict(),
+      folders: _loadFoldersStrict(),
+    );
+    // Validate the entire source before anything is uploaded, and whitelist
+    // away per-article/device settings through the backup model.
+    return CloudLibraryBackup.fromJson(backup.toJson());
+  });
+
+  Future<Map<String, dynamic>> restoreCloudBackup(Map<String, dynamic> json) =>
+      _mutate(() async {
+        final backup = CloudLibraryBackup.fromJson(json);
+        final local = {
+          for (final article in _loadArticlesStrict()) article.id: article,
+        };
+        final articles = [
+          for (final article in backup.articles)
+            article.copyWith(
+              teleprompterSettings: local[article.id]?.teleprompterSettings,
+            ),
+        ];
+        final saved = await _prefs.setValues({
+          StorageConstants.articlesKey: jsonEncode(
+            articles.map((article) => article.toJson()).toList(),
+          ),
+          StorageConstants.foldersKey: jsonEncode(
+            backup.folders.map((folder) => folder.toJson()).toList(),
+          ),
+        });
+        if (!saved) throw StateError('完整稿库恢复未写入成功');
+        return {
+          'success': true,
+          'articles': articles.length,
+          'folders': backup.folders.length,
+        };
+      });
+
+  Future<Article> createArticle({
+    required String title,
+    required String content,
+    String? folderId,
+  }) => _mutate(
+    () => _createArticleUnlocked(
+      title: title,
+      content: content,
+      folderId: folderId,
+    ),
+  );
+
+  Future<Article?> updateArticle(
+    String id, {
+    String? title,
+    String? content,
+    Map<String, dynamic>? teleprompterSettings,
+  }) => _mutate(
+    () => _updateArticleUnlocked(
+      id,
+      title: title,
+      content: content,
+      teleprompterSettings: teleprompterSettings,
+    ),
+  );
+
+  Future<bool> deleteArticle(String id) =>
+      _mutate(() => _deleteArticleUnlocked(id));
+
+  Future<Article?> moveArticleToFolder(String articleId, String? folderId) =>
+      _mutate(() => _moveArticleToFolderUnlocked(articleId, folderId));
+
+  Future<Folder> createFolder({required String name, String? parentId}) =>
+      _mutate(() => _createFolderUnlocked(name: name, parentId: parentId));
+
+  Future<Folder?> renameFolder(String id, String newName) =>
+      _mutate(() => _renameFolderUnlocked(id, newName));
+
+  Future<Folder?> moveFolder(String id, String? parentId) =>
+      _mutate(() => _moveFolderUnlocked(id, parentId));
+
+  Future<FolderCopyResult?> copyFolder(String id, String? parentId) =>
+      _mutate(() => _copyFolderUnlocked(id, parentId));
+
+  Future<bool> deleteFolder(String id) =>
+      _mutate(() => _deleteFolderUnlocked(id));
 
   /// 初始化存储
   Future<void> init() async {
@@ -45,6 +153,15 @@ class ArticleService {
         case WsMessageType.articleImport:
           _handleArticleImport(server, request);
           break;
+        case WsMessageType.articleCloudImport:
+          _handleCloudLibraryImport(server, request);
+          break;
+        case WsMessageType.articleCloudExport:
+          _handleCloudBackupExport(server, request);
+          break;
+        case WsMessageType.articleCloudRestore:
+          _handleCloudBackupRestore(server, request);
+          break;
         case WsMessageType.folderList:
           _handleFolderList(server, request);
           break;
@@ -73,6 +190,44 @@ class ArticleService {
   }
 
   // ─── 稿件处理器 ─────────────────────────────────────────
+
+  Future<void> _handleCloudBackupExport(
+    WsServer server,
+    WsRequest request,
+  ) async {
+    try {
+      final backup = await exportCloudBackup();
+      server.respond(
+        request.clientId,
+        WsMessage(
+          type: WsMessageType.articleCloudExportResponse,
+          id: request.message.id,
+          data: backup.toJson(),
+        ),
+      );
+    } catch (_) {
+      _respondError(server, request, '无法导出完整稿库，请检查稿件数据是否有效');
+    }
+  }
+
+  Future<void> _handleCloudBackupRestore(
+    WsServer server,
+    WsRequest request,
+  ) async {
+    try {
+      final result = await restoreCloudBackup(request.message.data);
+      server.respond(
+        request.clientId,
+        WsMessage(
+          type: WsMessageType.articleCloudRestoreResponse,
+          id: request.message.id,
+          data: result,
+        ),
+      );
+    } catch (_) {
+      _respondError(server, request, '完整稿库恢复失败，本地数据未替换');
+    }
+  }
 
   Future<void> _handleArticleList(WsServer server, WsRequest request) async {
     final articles = await loadArticles();
@@ -317,6 +472,79 @@ class ArticleService {
 
   // ─── 文件夹处理器 ───────────────────────────────────────
 
+  Future<void> _handleCloudLibraryImport(
+    WsServer server,
+    WsRequest request,
+  ) async {
+    try {
+      final result = await importCloudLibrary(request.message.data);
+      server.respond(
+        request.clientId,
+        WsMessage(
+          type: WsMessageType.articleCloudImportResponse,
+          id: request.message.id,
+          data: result.toJson(),
+        ),
+      );
+    } catch (error) {
+      _respondError(server, request, '云稿库同步失败：$error');
+    }
+  }
+
+  /// 全量校验后只保存一次稿件库；不修改文件夹、设备设置或未包含的稿件。
+  Future<CloudLibraryImportResult> _importCloudLibraryUnlocked(
+    Map<String, dynamic> json,
+  ) async {
+    final snapshot = CloudLibrarySnapshot.fromJson(json);
+    // The ordinary list UI tolerates damaged local data by showing an empty
+    // list. A sync must instead stop, so it cannot overwrite recoverable data.
+    final articles = _loadArticlesStrict();
+    final positions = {
+      for (var index = 0; index < articles.length; index++)
+        articles[index].id: index,
+    };
+    var created = 0;
+    var updated = 0;
+    var unchanged = 0;
+    for (final script in snapshot.scripts) {
+      final id = script.localId(snapshot.libraryId);
+      final position = positions[id];
+      final content = script.safeContent;
+      if (position == null) {
+        positions[id] = articles.length;
+        articles.add(
+          Article(
+            id: id,
+            title: script.scriptId,
+            content: content,
+            createdAt: script.createdAt,
+            updatedAt: script.updatedAt,
+          ),
+        );
+        created++;
+      } else {
+        final existing = articles[position];
+        if (existing.title == script.scriptId && existing.content == content) {
+          unchanged++;
+        } else {
+          articles[position] = existing.copyWith(
+            title: script.scriptId,
+            content: content,
+            updatedAt: script.updatedAt,
+          );
+          updated++;
+        }
+      }
+    }
+    if (created > 0 || updated > 0) await _saveArticles(articles);
+    return CloudLibraryImportResult(
+      created: created,
+      updated: updated,
+      unchanged: unchanged,
+      total: snapshot.scripts.length,
+    );
+  }
+
   Future<void> _handleFolderList(WsServer server, WsRequest request) async {
     final folders = await loadFolders();
     server.respond(
@@ -535,6 +763,22 @@ class ArticleService {
 
   // ─── 底层存储操作 ───────────────────────────────────────
 
+  List<Article> _loadArticlesStrict() {
+    final stored = _prefs.getString(StorageConstants.articlesKey);
+    if (stored == null || stored.isEmpty) return [];
+    return (jsonDecode(stored) as List<dynamic>)
+        .map((item) => Article.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
+
+  List<Folder> _loadFoldersStrict() {
+    final stored = _prefs.getString(StorageConstants.foldersKey);
+    if (stored == null || stored.isEmpty) return [];
+    return (jsonDecode(stored) as List<dynamic>)
+        .map((item) => Folder.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
+
   /// 获取所有稿件列表
   Future<List<Article>> loadArticles() async {
     final jsonStr = _prefs.getString(StorageConstants.articlesKey);
@@ -555,14 +799,16 @@ class ArticleService {
   /// 保存全部稿件
   Future<void> _saveArticles(List<Article> articles) async {
     final jsonStr = jsonEncode(articles.map((a) => a.toJson()).toList());
-    await _prefs.setString(StorageConstants.articlesKey, jsonStr);
+    if (!await _prefs.setString(StorageConstants.articlesKey, jsonStr)) {
+      throw StateError('稿件保存失败，未确认写入成功');
+    }
   }
 
   Future<void> replaceArticles(List<Article> articles) =>
-      _saveArticles(articles);
+      _mutate(() => _saveArticles(articles));
 
   /// 创建新稿件
-  Future<Article> createArticle({
+  Future<Article> _createArticleUnlocked({
     required String title,
     required String content,
     String? folderId,
@@ -577,20 +823,20 @@ class ArticleService {
       folderId: folderId,
     );
 
-    final articles = await loadArticles();
+    final articles = _loadArticlesStrict();
     articles.insert(0, article);
     await _saveArticles(articles);
     return article;
   }
 
   /// 更新稿件
-  Future<Article?> updateArticle(
+  Future<Article?> _updateArticleUnlocked(
     String id, {
     String? title,
     String? content,
     Map<String, dynamic>? teleprompterSettings,
   }) async {
-    final articles = await loadArticles();
+    final articles = _loadArticlesStrict();
     final index = articles.indexWhere((a) => a.id == id);
     if (index == -1) return null;
 
@@ -606,8 +852,8 @@ class ArticleService {
   }
 
   /// 删除稿件
-  Future<bool> deleteArticle(String id) async {
-    final articles = await loadArticles();
+  Future<bool> _deleteArticleUnlocked(String id) async {
+    final articles = _loadArticlesStrict();
     final initialLength = articles.length;
     articles.removeWhere((a) => a.id == id);
     if (articles.length == initialLength) return false;
@@ -616,11 +862,11 @@ class ArticleService {
   }
 
   /// 移动稿件到文件夹
-  Future<Article?> moveArticleToFolder(
+  Future<Article?> _moveArticleToFolderUnlocked(
     String articleId,
     String? folderId,
   ) async {
-    final articles = await loadArticles();
+    final articles = _loadArticlesStrict();
     final index = articles.indexWhere((a) => a.id == articleId);
     if (index == -1) return null;
 
@@ -652,13 +898,19 @@ class ArticleService {
   /// 保存全部文件夹
   Future<void> _saveFolders(List<Folder> folders) async {
     final jsonStr = jsonEncode(folders.map((f) => f.toJson()).toList());
-    await _prefs.setString(StorageConstants.foldersKey, jsonStr);
+    if (!await _prefs.setString(StorageConstants.foldersKey, jsonStr)) {
+      throw StateError('文件夹保存失败，未确认写入成功');
+    }
   }
 
-  Future<void> replaceFolders(List<Folder> folders) => _saveFolders(folders);
+  Future<void> replaceFolders(List<Folder> folders) =>
+      _mutate(() => _saveFolders(folders));
 
   /// 创建新文件夹
-  Future<Folder> createFolder({required String name, String? parentId}) async {
+  Future<Folder> _createFolderUnlocked({
+    required String name,
+    String? parentId,
+  }) async {
     final now = DateTime.now();
     final folder = Folder(
       id: _generateId(),
@@ -667,15 +919,15 @@ class ArticleService {
       createdAt: now,
     );
 
-    final folders = await loadFolders();
+    final folders = _loadFoldersStrict();
     folders.add(folder);
     await _saveFolders(folders);
     return folder;
   }
 
   /// 重命名文件夹
-  Future<Folder?> renameFolder(String id, String newName) async {
-    final folders = await loadFolders();
+  Future<Folder?> _renameFolderUnlocked(String id, String newName) async {
+    final folders = _loadFoldersStrict();
     final index = folders.indexWhere((f) => f.id == id);
     if (index == -1) return null;
 
@@ -686,8 +938,8 @@ class ArticleService {
   }
 
   /// 将文件夹移动到新位置。目标不能是自身或自身的后代。
-  Future<Folder?> moveFolder(String id, String? parentId) async {
-    final folders = await loadFolders();
+  Future<Folder?> _moveFolderUnlocked(String id, String? parentId) async {
+    final folders = _loadFoldersStrict();
     final index = folders.indexWhere((folder) => folder.id == id);
     if (index == -1 || !_isValidFolderDestination(folders, id, parentId)) {
       return null;
@@ -703,8 +955,11 @@ class ArticleService {
   }
 
   /// 递归复制文件夹，保留子文件夹、稿件富文本及每稿提词器设置。
-  Future<FolderCopyResult?> copyFolder(String id, String? parentId) async {
-    final folders = await loadFolders();
+  Future<FolderCopyResult?> _copyFolderUnlocked(
+    String id,
+    String? parentId,
+  ) async {
+    final folders = _loadFoldersStrict();
     final source = folders.where((folder) => folder.id == id).firstOrNull;
     if (source == null || !_isValidFolderDestination(folders, id, parentId)) {
       return null;
@@ -750,7 +1005,7 @@ class ArticleService {
       pending.removeWhere(copiedInPass.contains);
     }
 
-    final articles = await loadArticles();
+    final articles = _loadArticlesStrict();
     final copiedArticles = <Article>[
       for (final article in articles)
         if (article.folderId != null && idMap.containsKey(article.folderId))
@@ -795,8 +1050,11 @@ class ArticleService {
   }
 
   /// 删除文件夹
-  Future<bool> deleteFolder(String id) async {
-    final folders = await loadFolders();
+  Future<bool> _deleteFolderUnlocked(String id) async {
+    final folders = _loadFoldersStrict();
+    // Validate both stores before the first write; damaged article data must
+    // not leave a deleted folder behind when the operation is rejected.
+    final articles = _loadArticlesStrict();
     final initialLength = folders.length;
     folders.removeWhere((f) => f.id == id);
     if (folders.length == initialLength) return false;
@@ -808,7 +1066,6 @@ class ArticleService {
     await _saveFolders(folders);
 
     // 将该文件夹下的稿件移回根目录
-    final articles = await loadArticles();
     bool changed = false;
     for (int i = 0; i < articles.length; i++) {
       if (articles[i].folderId == id) {

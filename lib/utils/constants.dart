@@ -61,10 +61,6 @@ abstract final class TeleprompterConstants {
   static const double topPaddingVh = 30.0;
   static const double bottomPaddingVh = 80.0;
 
-  static const Duration articleSettingsSaveDebounce = Duration(
-    milliseconds: 350,
-  );
-
   /// 以默认 96px 行高、每行约 12 字换算：150 字/分约为 20 像素/秒。
   /// 十档只提供快捷选择，实际速度允许任意正负小数。
   static const List<int> pixelSpeedPresets = [
