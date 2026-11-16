@@ -1,12 +1,39 @@
-## 飓风提词器·悬浮版（个人 Fork）
+## 飓风提词器 Plus · 悬浮与云稿库版（个人 Fork）
 
-本分支在原版基础上增加 **Android 跨应用悬浮提词**，用于打开手机相机自拍时同时看见取景画面和台词。新增界面、控制和权限说明均为中文；功能独立实现，保留上游 MIT 许可证。
+基于 [原版 Storm Teleprompter+](https://github.com/html5syt/Storm-Teleprompter-Plus) 扩展。原版已有稿件管理、普通提词、镜像、离线语音跟随及局域网同步播放；本 Fork 主要新增以下功能，新增界面、控制和权限说明均为中文，保留上游 MIT 许可证。
 
-**1.1.0 / 私人云端稿库**：在 **应用设置 → 云端稿库** 填写 HTTPS 地址和下载令牌，点击 **下载到本机**。各设备仍使用本机麦克风、模型和播放位置，下载后可离线提词。按云库 ID 和脚本编号更新对应云稿，保留本地其他稿件、分组、独立提词设置和全局设备设置，不自动删除稿件。此入口独立于原有的“连接远程服务端”（远程播放从端）。完整备份仍是文件导出/恢复，不承担云稿库同步。
+### 相比原版新增了什么
 
-云端提供独立的 Python/SQLite 无 GUI 服务和按 `script_id` 上传 Markdown 的 API；同编号重复上传更新，正文未变不新增副本。[服务端、上传模板与 CLI](server/cloud_library/README.md) · [GPT Actions 接口定义](server/cloud_library/openapi.json)。Android 与 Windows 均提供云稿库入口，Android 悬浮功能不会在 Windows 上显示。连接令牌单独保存在本机配置中，不进入完整应用备份。
+| 功能 | 原版 | 本 Fork 新增 |
+| --- | --- | --- |
+| Android 跨应用悬浮提词 | 应用内提词 | 半透明台词窗可覆盖手机相机，自拍时同时看见人脸和台词；可移动、缩放、调字号和背景透明度、左右镜像、锁定触摸穿透及独立解锁 |
+| 悬浮窗播放与跟读 | 应用内自动滚动和离线语音跟随 | 悬浮窗复用本机播放状态和阅读位置，支持自动滚动、语音跟读及已确认的回读回退，并可从前台通知停止 |
+| Redmi / MIUI 权限指引 | 通用 Android 权限处理 | 针对 Redmi Note 11T Pro / MIUI 13.0.14 的悬浮窗、自启动、省电设置入口和中文配置指引；仍需手动授权 |
+| 私有云端稿库 | 局域网连接同一服务端同步播放 | 新增独立的云稿库入口，Android / Windows 手动下载稿件到本地，各设备独立、离线提词，保留设备设置 |
+| Markdown / GPT 上传 | 不含本 Fork 的云稿库上传接口 | 独立 Python / SQLite 服务、Markdown 上传 API、CLI 和 GPT Action 定义；以脚本编号为标题，同编号更新，备注不进入台词 |
 
-**1.0.1 / Redmi Note 11T Pro（用户系统 MIUI 13.0.14）适配**：在符合条件的小米/Redmi 设备上提供 MIUI 权限管理、自启动与省电设置入口及中文指引，帮助配置悬浮窗和后台运行权限。仍需用户手动授权，不能绕过系统限制，也未在该 Redmi 真机验证。安装包为 ARM64，沿用原悬浮版签名和包名，可覆盖更新保留数据。
+### 下载安装
+
+**[前往本 Fork Releases 下载](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases)** · **[最新版 1.1.0](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/tag/v1.1.0-cloud)**
+
+| 安装包 | 用途 |
+| --- | --- |
+| [Android ARM64 · 1.1.0](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/download/v1.1.0-cloud/storm-cloud-android-arm64.apk) | 推荐用于 ARM64 手机，含悬浮窗、MIUI 指引和云稿库，可覆盖更新此前本 Fork 版本 |
+| [Windows x64 · 1.1.0](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/download/v1.1.0-cloud/storm-cloud-windows-x64.zip) | 完整解压后运行 exe；支持普通提词、镜像、离线语音跟随和云稿库，跨应用悬浮窗仅 Android 支持 |
+
+旧悬浮版 1.0.0 和 Redmi 适配版 1.0.1 也保存在 Releases，仅作历史版本，均不含云稿库。应用名为 **飓风提词器·悬浮版**，独立包名 `work.swlt.stormteleprompter`，可与原版并存。原版数据请先导出完整备份，再在本 Fork 中恢复；本 Fork 后续覆盖更新沿用同一签名。
+
+功能源码位于 [feature/android-floating-prompter](https://github.com/swlt-silica/Storm-Teleprompter-Plus/tree/feature/android-floating-prompter) 分支；发布包对应的具体提交见各 Release 的构建记录。
+
+### 云稿库使用
+
+在 **应用设置 → 云端稿库** 填写你自己的 HTTPS 地址和下载令牌，保存后点击 **下载到本机**。各设备使用本机麦克风、模型和播放位置，下载后可离线提词。云稿按云库 ID 和脚本编号更新，覆盖对应云稿的本地修改，保留其他稿件、文件夹和设备设置；云端缺少的稿件不会自动删除。上传后需各设备再次手动下载，完整备份/恢复仍是独立文件操作。
+
+云稿库独立于原有的“连接远程服务端”（远程播放从端）。令牌单独保存在本机配置中，不进入完整应用备份。云端服务不代替本机语音识别。
+
+[服务端部署、上传模板与 CLI](https://github.com/swlt-silica/Storm-Teleprompter-Plus/blob/feature/android-floating-prompter/server/cloud_library/README.md) · [GPT Actions 接口定义](https://github.com/swlt-silica/Storm-Teleprompter-Plus/blob/feature/android-floating-prompter/server/cloud_library/openapi.json)。GPT 自动上传需另行配置 Action 的 Bearer 鉴权，仅让普通聊天生成 Markdown 不会上传。
+
+### Android 悬浮窗使用
 
 - 从稿件播放页点击 **悬浮提词**，调整字号、背景不透明度、窗口宽高和左右镜像。
 - 允许 **显示在其他应用上层**。语音模式还需要麦克风权限及 **飓风提词器：相机悬浮跟读** 无障碍服务。
@@ -15,11 +42,9 @@
 - 悬浮窗与普通提词共用当前稿件、播放状态和阅读位置，支持按字自动滚动、离线语音跟读与已确认的回读回退。像素匀速模式需要先明确切换为按字滚动。
 - 从悬浮窗或运行通知点击停止，会移除窗口并暂停会话。新增外观设置随原有完整应用备份保存。
 
-安装包应用名为 **飓风提词器·悬浮版**，独立包名 `work.swlt.stormteleprompter`，可与原版并存。现有原版稿件请使用原版的完整备份导入。
+Android 13 及更新系统若无法启用无障碍服务，可在应用信息中查看是否需要先允许“受限设置”（厂商菜单名称可能不同）；Android 12 不显示此项专用提示。无障碍服务不读取其他应用屏幕、不订阅界面事件。相机录像与离线跟读能否同时采音取决于手机固件，**尚未在 OPPO / Redmi 真机及用户 Windows 电脑验收**；MIUI 指引不能绕过系统限制。
 
-Android 13 及更新系统若无法启用无障碍服务，可在应用信息中查看是否需要先允许“受限设置”（厂商菜单名称可能不同）；Android 12 不显示此项专用提示。无障碍服务不读取其他应用屏幕、不订阅界面事件；相机与语音识别能否同时采音仍取决于手机固件，**尚未在 OPPO 或 Redmi 真机验收**。
-
-[构建与真机验收说明](notes/docs/overlay-android-build.md) · [实施进度](notes/android-floating-plan.md) · [原始上游](https://github.com/html5syt/Storm-Teleprompter-Plus)
+[构建与真机验收说明](https://github.com/swlt-silica/Storm-Teleprompter-Plus/blob/feature/android-floating-prompter/notes/docs/overlay-android-build.md) · [实施进度](https://github.com/swlt-silica/Storm-Teleprompter-Plus/blob/feature/android-floating-prompter/notes/android-floating-plan.md)
 
 ---
 
@@ -32,8 +57,8 @@ Android 13 及更新系统若无法启用无障碍服务，可在应用信息中
 <p align="center">
   <a href="https://github.com/html5syt/Storm-Teleprompter-Plus/actions/workflows/debug.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/html5syt/Storm-Teleprompter-Plus/debug.yml?branch=v2&amp;style=flat-square&amp;logo=githubactions&amp;logoColor=white&amp;label=build" /></a>
   <a href="https://flutter.dev/"><img alt="Flutter 3.44.1" src="https://img.shields.io/badge/Flutter-3.44.1-02569B?style=flat-square&amp;logo=flutter&amp;logoColor=white" /></a>
-  <a href="https://github.com/html5syt/Storm-Teleprompter-Plus/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/html5syt/Storm-Teleprompter-Plus?style=flat-square&amp;display_name=tag&amp;sort=semver" /></a>
-  <a href="https://github.com/html5syt/Storm-Teleprompter-Plus/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/html5syt/Storm-Teleprompter-Plus/total?style=flat-square&amp;logo=github" /></a>
+  <a href="https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/swlt-silica/Storm-Teleprompter-Plus?style=flat-square&amp;display_name=tag&amp;sort=semver" /></a>
+  <a href="https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/swlt-silica/Storm-Teleprompter-Plus/total?style=flat-square&amp;logo=github" /></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/html5syt/Storm-Teleprompter-Plus?style=flat-square" /></a>
   <a href="https://github.com/html5syt/Storm-Teleprompter-Plus/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/html5syt/Storm-Teleprompter-Plus?style=flat-square&amp;logo=github" /></a>
 </p>
@@ -74,7 +99,7 @@ Android 13 及更新系统若无法启用无障碍服务，可在应用信息中
 
 ## 获取应用
 
-可从仓库的 [Releases](https://github.com/html5syt/Storm-Teleprompter-Plus/releases) 页面下载对应平台产物，也可按照[本地运行](#本地运行)章节从源码启动。
+可从仓库的 [Releases](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases) 页面下载对应平台产物，也可按照[本地运行](#本地运行)章节从源码启动。
 
 ## 快速开始
 
