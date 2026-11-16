@@ -1,6 +1,7 @@
 import 'dart:convert';
 import '../models/article.dart';
 import '../models/cloud_library_snapshot.dart';
+import '../models/cloud_library_backup.dart';
 import '../models/folder.dart';
 import '../services/app_preferences.dart';
 import '../utils/constants.dart';
@@ -34,6 +35,45 @@ class ArticleService {
   Future<CloudLibraryImportResult> importCloudLibrary(
     Map<String, dynamic> json,
   ) => _mutate(() => _importCloudLibraryUnlocked(json));
+
+  Future<CloudLibraryBackup> exportCloudBackup() => _mutate(() async {
+    final backup = CloudLibraryBackup(
+      createdAt: DateTime.now().toUtc(),
+      articles: _loadArticlesStrict(),
+      folders: _loadFoldersStrict(),
+    );
+    // Validate the entire source before anything is uploaded, and whitelist
+    // away per-article/device settings through the backup model.
+    return CloudLibraryBackup.fromJson(backup.toJson());
+  });
+
+  Future<Map<String, dynamic>> restoreCloudBackup(Map<String, dynamic> json) =>
+      _mutate(() async {
+        final backup = CloudLibraryBackup.fromJson(json);
+        final local = {
+          for (final article in _loadArticlesStrict()) article.id: article,
+        };
+        final articles = [
+          for (final article in backup.articles)
+            article.copyWith(
+              teleprompterSettings: local[article.id]?.teleprompterSettings,
+            ),
+        ];
+        final saved = await _prefs.setValues({
+          StorageConstants.articlesKey: jsonEncode(
+            articles.map((article) => article.toJson()).toList(),
+          ),
+          StorageConstants.foldersKey: jsonEncode(
+            backup.folders.map((folder) => folder.toJson()).toList(),
+          ),
+        });
+        if (!saved) throw StateError('完整稿库恢复未写入成功');
+        return {
+          'success': true,
+          'articles': articles.length,
+          'folders': backup.folders.length,
+        };
+      });
 
   Future<Article> createArticle({
     required String title,
@@ -116,6 +156,12 @@ class ArticleService {
         case WsMessageType.articleCloudImport:
           _handleCloudLibraryImport(server, request);
           break;
+        case WsMessageType.articleCloudExport:
+          _handleCloudBackupExport(server, request);
+          break;
+        case WsMessageType.articleCloudRestore:
+          _handleCloudBackupRestore(server, request);
+          break;
         case WsMessageType.folderList:
           _handleFolderList(server, request);
           break;
@@ -144,6 +190,44 @@ class ArticleService {
   }
 
   // ─── 稿件处理器 ─────────────────────────────────────────
+
+  Future<void> _handleCloudBackupExport(
+    WsServer server,
+    WsRequest request,
+  ) async {
+    try {
+      final backup = await exportCloudBackup();
+      server.respond(
+        request.clientId,
+        WsMessage(
+          type: WsMessageType.articleCloudExportResponse,
+          id: request.message.id,
+          data: backup.toJson(),
+        ),
+      );
+    } catch (_) {
+      _respondError(server, request, '无法导出完整稿库，请检查稿件数据是否有效');
+    }
+  }
+
+  Future<void> _handleCloudBackupRestore(
+    WsServer server,
+    WsRequest request,
+  ) async {
+    try {
+      final result = await restoreCloudBackup(request.message.data);
+      server.respond(
+        request.clientId,
+        WsMessage(
+          type: WsMessageType.articleCloudRestoreResponse,
+          id: request.message.id,
+          data: result,
+        ),
+      );
+    } catch (_) {
+      _respondError(server, request, '完整稿库恢复失败，本地数据未替换');
+    }
+  }
 
   Future<void> _handleArticleList(WsServer server, WsRequest request) async {
     final articles = await loadArticles();

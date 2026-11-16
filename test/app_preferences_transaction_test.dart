@@ -47,6 +47,40 @@ void main() {
     },
   );
 
+  test(
+    'batch commit replaces articles and folders together or preserves both',
+    () async {
+      await preferences.setValues({
+        'articles': 'old-articles',
+        'folders': 'old-folders',
+      });
+      final before = await file.readAsString();
+      final blocked = Directory('${file.path}.tmp');
+      await blocked.create();
+      try {
+        await expectLater(
+          preferences.setValues({
+            'articles': 'new-articles',
+            'folders': 'new-folders',
+          }),
+          throwsA(isA<FileSystemException>()),
+        );
+        expect(preferences.getString('articles'), 'old-articles');
+        expect(preferences.getString('folders'), 'old-folders');
+        expect(await file.readAsString(), before);
+      } finally {
+        await blocked.delete();
+      }
+      await preferences.setValues({
+        'articles': 'new-articles',
+        'folders': 'new-folders',
+      });
+      final saved = jsonDecode(await file.readAsString());
+      expect(saved['articles'], 'new-articles');
+      expect(saved['folders'], 'new-folders');
+    },
+  );
+
   test('concurrent device configuration writes preserve both keys', () async {
     await Future.wait([
       preferences.setString('cloud_connection', 'private-test-token'),

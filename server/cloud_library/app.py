@@ -25,6 +25,9 @@ MAX_TOTAL_BODY_UNITS = 8_000_000
 MAX_TOTAL_CONTENT_UNITS = 24_000_000
 MAX_SCRIPTS = 1000
 MAX_RESPONSE_BYTES = 32 * 1024 * 1024
+BACKUP_FORMAT = "storm-cloud-backup"
+MAX_FOLDERS = 1000
+TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z\Z", re.ASCII)
 SCRIPT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z", re.ASCII)
 
 
@@ -113,6 +116,114 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+def parse_json(raw: bytes) -> object:
+    def unique_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate key")
+            result[key] = value
+        return result
+    try:
+        return json.loads(raw.decode("utf-8"), object_pairs_hook=unique_keys,
+                          parse_constant=lambda _: (_ for _ in ()).throw(ValueError("nonfinite")))
+    except (ValueError, UnicodeError, RecursionError):
+        raise LibraryError("JSON 格式无效或包含重复字段", "invalid_json") from None
+
+
+def validate_backup(value: object) -> dict:
+    """Whitelist the content-only format before any persistent change."""
+    def invalid(message="稿件和文件夹备份格式无效"):
+        raise LibraryError(message, "invalid_backup")
+
+    def text(item, maximum, *, empty=False):
+        if not isinstance(item, str) or (not empty and not item.strip()) or "\x00" in item:
+            invalid()
+        try:
+            if utf16_units(item) > maximum:
+                invalid("备份中的文字长度超过限制")
+        except UnicodeError:
+            invalid("备份含无效 Unicode 字符")
+        return item
+
+    def timestamp(item):
+        if not isinstance(item, str) or not TIMESTAMP.fullmatch(item):
+            invalid("备份时间必须是有效 UTC 时间")
+        try:
+            return datetime.fromisoformat(item[:-1] + "+00:00")
+        except ValueError:
+            invalid("备份时间超出有效日历范围")
+
+    def order(item):
+        if type(item) is not int or abs(item) > 9007199254740991:
+            invalid("排序值无效")
+
+    if not isinstance(value, dict) or set(value) != {"format", "version", "createdAt", "articles", "folders"}:
+        invalid("备份只能包含稿件和文件夹，不得包含设备设置或其他字段")
+    if value["format"] != BACKUP_FORMAT or type(value["version"]) is not int or value["version"] != 1:
+        invalid("不支持此云端总备份格式或版本")
+    timestamp(value["createdAt"])
+    articles, folders = value["articles"], value["folders"]
+    if not isinstance(articles, list) or not isinstance(folders, list):
+        invalid()
+    if len(articles) > MAX_SCRIPTS or len(folders) > MAX_FOLDERS:
+        raise LibraryError("总备份最多包含 1000 篇稿件和 1000 个文件夹", "backup_too_large", 413)
+    folder_ids = set()
+    parents = {}
+    for folder in folders:
+        required = {"id", "name", "createdAt", "sortOrder"}
+        if not isinstance(folder, dict) or not required <= set(folder) or set(folder) - required - {"parentId"}:
+            invalid()
+        identity = text(folder["id"], 256)
+        if identity in folder_ids:
+            invalid("文件夹 ID 重复")
+        folder_ids.add(identity)
+        text(folder["name"], 512)
+        timestamp(folder["createdAt"])
+        order(folder["sortOrder"])
+        parent = folder.get("parentId")
+        if parent is not None:
+            text(parent, 256)
+        parents[identity] = parent
+    complete = set()
+    for identity in folder_ids:
+        cursor, path = identity, set()
+        while cursor is not None and cursor not in complete:
+            if cursor not in folder_ids:
+                invalid("文件夹引用了不存在的上级目录")
+            if cursor in path:
+                invalid("文件夹不能循环引用")
+            path.add(cursor)
+            cursor = parents[cursor]
+        complete.update(path)
+    article_ids = set()
+    total = 0
+    for article in articles:
+        required = {"id", "title", "content", "createdAt", "updatedAt", "sortOrder"}
+        if not isinstance(article, dict) or not required <= set(article) or set(article) - required - {"folderId"}:
+            invalid("稿件备份不得包含设备提词设置或其他字段")
+        identity = text(article["id"], 256)
+        if identity in article_ids:
+            invalid("稿件 ID 重复")
+        article_ids.add(identity)
+        text(article["title"], 512, empty=True)
+        text(article["content"], MAX_CONTENT_UNITS, empty=True)
+        total += utf16_units(article["content"])
+        if total > MAX_TOTAL_CONTENT_UNITS:
+            raise LibraryError("备份正文总长度超过限制", "backup_too_large", 413)
+        if timestamp(article["updatedAt"]) < timestamp(article["createdAt"]):
+            invalid("稿件更新时间不能早于创建时间")
+        order(article["sortOrder"])
+        folder_id = article.get("folderId")
+        if folder_id is not None:
+            text(folder_id, 256)
+            if folder_id not in folder_ids:
+                invalid("稿件引用了不存在的文件夹")
+    if len(encode_json(value)) > MAX_RESPONSE_BYTES - 1024:
+        raise LibraryError("总备份超过 32 MiB 限制", "backup_too_large", 413)
+    return value
+
+
 class Library:
     def __init__(self, directory: Path | str):
         self.directory = Path(directory).resolve()
@@ -175,12 +286,71 @@ class Library:
     def snapshot_bytes(self) -> bytes:
         with self.connect() as db:
             db.execute("BEGIN")
+            if db.execute("SELECT 1 FROM metadata WHERE key='content_backup'").fetchone():
+                raise LibraryError("稿库已启用整库备份，请升级到支持上传与整库恢复的新版客户端", "upgrade_required", 426)
             return self.validate_snapshot(self._snapshot(db))
+
+    def _backup(self, db: sqlite3.Connection) -> dict:
+        stored = db.execute("SELECT value FROM metadata WHERE key='content_backup'").fetchone()
+        if stored:
+            return validate_backup(parse_json(stored[0].encode("utf-8")))
+        snapshot = self._snapshot(db)
+        if not snapshot["scripts"]:
+            raise LibraryError("云端尚无总备份，请先从有稿件的设备上传", "no_backup", 404)
+        articles = [{"id": f'cloud:{snapshot["libraryId"]}:{script["scriptId"]}',
+                     "title": script["title"], "content": render_content(script["body"]),
+                     "createdAt": script["createdAt"], "updatedAt": script["updatedAt"],
+                     "sortOrder": index} for index, script in enumerate(snapshot["scripts"])]
+        return validate_backup({"format": BACKUP_FORMAT, "version": 1,
+                                "createdAt": max(s["updatedAt"] for s in snapshot["scripts"]),
+                                "articles": articles, "folders": []})
+
+    def backup_bytes(self) -> bytes:
+        with self.connect() as db:
+            db.execute("BEGIN")
+            revision = int(db.execute("SELECT value FROM metadata WHERE key='revision'").fetchone()[0])
+            return encode_json({"revision": revision, "backup": self._backup(db)})
+
+    def replace_backup(self, raw: bytes) -> dict:
+        backup = validate_backup(parse_json(raw))
+        encoded = encode_json(backup).decode("utf-8")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            revision = int(db.execute("SELECT value FROM metadata WHERE key='revision'").fetchone()[0]) + 1
+            db.execute("INSERT OR REPLACE INTO metadata VALUES ('content_backup', ?)", (encoded,))
+            db.execute("UPDATE metadata SET value=? WHERE key='revision'", (str(revision),))
+            # No retained generations: the current snapshot is authoritative.
+            db.execute("DELETE FROM scripts")
+        return {"success": True, "articles": len(backup["articles"]),
+                "folders": len(backup["folders"]), "revision": revision}
 
     def import_markdown(self, raw: bytes) -> dict:
         script_id, body, content = parse_markdown(raw)
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            if db.execute("SELECT 1 FROM metadata WHERE key='content_backup'").fetchone():
+                backup = self._backup(db)
+                library_id = db.execute("SELECT value FROM metadata WHERE key='library_id'").fetchone()[0]
+                identity = f"cloud:{library_id}:{script_id}"
+                old = next((a for a in backup["articles"] if a["id"] == identity), None)
+                revision = int(db.execute("SELECT value FROM metadata WHERE key='revision'").fetchone()[0])
+                if old is None or old["content"] != content or old["title"] != script_id:
+                    revision += 1
+                    now = utc_now()
+                    article = {"id": identity, "title": script_id, "content": content,
+                               "createdAt": old["createdAt"] if old else now,
+                               "updatedAt": now, "sortOrder": old["sortOrder"] if old else len(backup["articles"])}
+                    if old and old.get("folderId") is not None:
+                        article["folderId"] = old["folderId"]
+                    backup["articles"] = [article if a["id"] == identity else a for a in backup["articles"]]
+                    if old is None:
+                        backup["articles"].append(article)
+                    backup["createdAt"] = now
+                    validate_backup(backup)
+                    db.execute("UPDATE metadata SET value=? WHERE key='content_backup'", (encode_json(backup).decode("utf-8"),))
+                    db.execute("UPDATE metadata SET value=? WHERE key='revision'", (str(revision),))
+                return {"created": old is None, "script": {"scriptId": script_id, "title": script_id,
+                        "body": body, "content": content, "revision": revision}}
             old = db.execute("SELECT * FROM scripts WHERE script_id = ?", (script_id,)).fetchone()
             if old is not None and old["body"] == body:
                 return {"created": False, "script": self.script(old)}
@@ -273,6 +443,9 @@ class Handler(BaseHTTPRequestHandler):
             elif route == "/api/v1/library":
                 self._authorize()
                 self._send(200, self.server.library.snapshot_bytes())
+            elif route == "/api/v1/backup":
+                self._authorize()
+                self._send(200, self.server.library.backup_bytes())
             else:
                 raise LibraryError("接口不存在", "not_found", 404)
         except LibraryError as exc:
@@ -281,6 +454,36 @@ class Handler(BaseHTTPRequestHandler):
             pass
         except Exception:
             self._error(LibraryError("稿库暂时不可用", "internal_error", 500))
+
+    def do_PUT(self):
+        try:
+            if self._route() != "/api/v1/backup":
+                raise LibraryError("接口不存在", "not_found", 404)
+            self._authorize(write=True)
+            content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+            if content_type != "application/json":
+                raise LibraryError("总备份必须使用 UTF-8 application/json", "unsupported_media_type", 415)
+            lengths = self.headers.get_all("Content-Length", [])
+            if self.headers.get("Transfer-Encoding") or len(lengths) != 1:
+                raise LibraryError("上传必须携带唯一 Content-Length，不支持分块编码", "invalid_content_length", 411)
+            try:
+                size = int(lengths[0])
+            except ValueError as exc:
+                raise LibraryError("Content-Length 无效", "invalid_content_length") from exc
+            if size < 0 or size > MAX_RESPONSE_BYTES:
+                raise LibraryError("总备份超过 32 MiB 限制", "request_too_large", 413)
+            body = self.rfile.read(size)
+            if len(body) != size:
+                raise LibraryError("总备份上传不完整，未覆盖云端稿件", "incomplete_request")
+            self._send(200, encode_json(self.server.library.replace_backup(body)))
+        except LibraryError as exc:
+            self._error(exc)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except TimeoutError:
+            self._error(LibraryError("总备份上传超时，未完成覆盖", "request_timeout", 408))
+        except Exception:
+            self._error(LibraryError("稿库暂时不可用，未完成上传", "internal_error", 500))
 
     def do_POST(self):
         try:

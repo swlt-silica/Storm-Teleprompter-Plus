@@ -9,15 +9,14 @@ import '../../utils/constants.dart';
 import 'app_data_directory.dart';
 
 class AppPreferences {
-  AppPreferences._shared(this._sharedPreferences)
-    : _file = null,
-      _values = null;
+  AppPreferences._shared(this._sharedPreferences, this._values) : _file = null;
 
   AppPreferences._file(this._file, this._values) : _sharedPreferences = null;
 
   final SharedPreferences? _sharedPreferences;
   final File? _file;
-  final Map<String, String>? _values;
+  final Map<String, String> _values;
+  static const _sharedSnapshotKey = '__storm_committed_strings_v1';
   Future<void> _pendingWrite = Future<void>.value();
 
   static Future<AppPreferences>? _instance;
@@ -28,7 +27,24 @@ class AppPreferences {
 
   static Future<AppPreferences> _create() async {
     if (!Platform.isWindows && !Platform.isLinux && !Platform.isMacOS) {
-      return AppPreferences._shared(await SharedPreferences.getInstance());
+      final preferences = await SharedPreferences.getInstance();
+      final values = <String, String>{
+        for (final key in preferences.getKeys())
+          if (key != _sharedSnapshotKey && preferences.get(key) is String)
+            key: preferences.getString(key)!,
+      };
+      final committed = preferences.getString(_sharedSnapshotKey);
+      if (committed != null) {
+        final decoded = jsonDecode(committed);
+        if (decoded is! Map ||
+            decoded.entries.any(
+              (entry) => entry.key is! String || entry.value is! String,
+            )) {
+          throw const FormatException('本机配置快照损坏，请先恢复有效备份');
+        }
+        values.addAll(Map<String, String>.from(decoded));
+      }
+      return AppPreferences._shared(preferences, values);
     }
 
     final dataDirectory = await getAppDataDirectory();
@@ -55,31 +71,39 @@ class AppPreferences {
   }
 
   String? getString(String key) {
-    return _sharedPreferences?.getString(key) ?? _values?[key];
+    return _values[key];
   }
 
-  Future<bool> setString(String key, String value) async {
-    final sharedPreferences = _sharedPreferences;
-    if (sharedPreferences != null) {
-      return sharedPreferences.setString(key, value);
-    }
+  Future<bool> setString(String key, String value) => setValues({key: value});
 
-    final write = _pendingWrite.then((_) async {
-      final snapshot = Map<String, String>.from(_values!);
-      snapshot[key] = value;
-      await _writeSnapshot(snapshot);
-      // Publish only the committed snapshot; a failed disk write must leave
-      // readers on the previous data, and the next queued write can retry.
+  /// One durable commit for all keys. Mobile preferences use a single JSON
+  /// envelope, because several SharedPreferences.setString calls are not a
+  /// transaction. Old individual string keys are migrated on the first write.
+  Future<bool> setValues(Map<String, String> values) {
+    if (values.containsKey(_sharedSnapshotKey)) {
+      throw ArgumentError('保留的配置键不可直接写入');
+    }
+    final changes = Map<String, String>.from(values);
+    final result = _pendingWrite.then((_) async {
+      final snapshot = Map<String, String>.from(_values)..addAll(changes);
+      final shared = _sharedPreferences;
+      if (shared != null) {
+        if (!await shared.setString(_sharedSnapshotKey, jsonEncode(snapshot)))
+          return false;
+      } else {
+        await _writeSnapshot(snapshot);
+      }
+      // Readers see the complete batch only after its durable write succeeds.
       _values
         ..clear()
         ..addAll(snapshot);
+      return true;
     });
-    _pendingWrite = write.then<void>(
+    _pendingWrite = result.then<void>(
       (_) {},
       onError: (Object _, StackTrace _) {},
     );
-    await write;
-    return true;
+    return result;
   }
 
   Future<void> _writeSnapshot(Map<String, String> snapshot) async {

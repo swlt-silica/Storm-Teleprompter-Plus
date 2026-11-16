@@ -23,7 +23,6 @@ jobs:
         run: |
           set -euo pipefail
           gh run download 43791631057 --name storm-floating-arm64-21fd25c5107cf912accaef1b6b2197d47d4299d5 --dir old-floating
-          gh run download 43798795829 --name storm-floating-arm64-43b8593c6deb72077cc8d10bc8220c4e663aa790 --dir old-miui
           gh run download 43811699548 --name storm-floating-arm64-652057d2dbefbb506b9eab8fb7ba2757be8232e9 --dir cloud-android
           gh run download 43811699548 --name storm-cloud-windows-x64-652057d2dbefbb506b9eab8fb7ba2757be8232e9 --dir cloud-windows
 
@@ -36,7 +35,6 @@ jobs:
 
           packages = [
               ('old-floating', '*.apk', 'v1.0.0-floating', 'storm-floating-1.0.0-android-universal.apk', '9509a9f2c06406d55f82385dc4fc1fd7aceb4893ca82bc14b6d2e42a974d72ca'),
-              ('old-miui', '*.apk', 'v1.0.1-miui13', 'storm-redmi-note11t-pro-miui13.apk', '79b2ac66d883f6667d039f96d8051fba2fad92221e26c152041b48c93a45fcb4'),
               ('cloud-android', '*.apk', 'v1.1.0-cloud', 'storm-cloud-android-arm64.apk', '98265972c354096a43e1dc502f1297bd69fc0cbcedaa9e58ee482b396fad8bd9'),
               ('cloud-windows', '*.zip', 'v1.1.0-cloud', 'storm-cloud-windows-x64.zip', '5eb0ae25115c5d79c1653a2286e35338cc129d29ea941c77b9dbe630ebc1602a'),
           ]
@@ -58,5 +56,4 @@ jobs:
         run: |
           set -euo pipefail
           gh release upload v1.0.0-floating release-packages/v1.0.0-floating/storm-floating-1.0.0-android-universal.apk --clobber
-          gh release upload v1.0.1-miui13 release-packages/v1.0.1-miui13/storm-redmi-note11t-pro-miui13.apk --clobber
           gh release upload v1.1.0-cloud release-packages/v1.1.0-cloud/storm-cloud-android-arm64.apk release-packages/v1.1.0-cloud/storm-cloud-windows-x64.zip --clobber
