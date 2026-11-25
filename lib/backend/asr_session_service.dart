@@ -246,6 +246,7 @@ class AsrSessionService {
 
   void _handleTranscript(String text, bool isFinal) {
     final trimmed = normalizeAsrTranscript(text.trim());
+    if (!isFinal && trimmed == _partialTranscript) return;
     if (isFinal) {
       if (trimmed.isNotEmpty) {
         _committedTranscript = appendAsrTranscript(
@@ -262,11 +263,13 @@ class AsrSessionService {
       _partialTranscript,
     );
     final result = _alignment.consumeTranscript(trimmed, isFinal);
-    final alignedIndex = limitAdvance(
-      currentIndex: _currentIndex,
-      requestedIndex: result.index,
-      isFinal: isFinal,
-    );
+    final alignedIndex = result.meta.strategy == 'anchor'
+        ? result.index
+        : limitAdvance(
+            currentIndex: _currentIndex,
+            requestedIndex: result.index,
+            isFinal: isFinal,
+          );
     if (alignedIndex >= 0 &&
         (alignedIndex >= _currentIndex || result.meta.allowBackward)) {
       _currentIndex = alignedIndex;

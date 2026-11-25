@@ -217,6 +217,19 @@ void main() {
     expect(fixture.bridge.startCalls, 0);
   });
 
+  testWidgets('悬浮语音从本机断连恢复后才开相机', (tester) async {
+    final fixture = _Fixture(teleprompter: _ControlledVoice());
+    addTearDown(fixture.dispose);
+    await fixture.settings.setScrollMode(ScrollMode.asr);
+    await fixture.settings.setAsrModel('test-model', '测试模型');
+    fixture.connection.online = false;
+    await fixture.controller.start(openCamera: true);
+    expect(fixture.connection.online, isTrue);
+    expect(fixture.controller.active, isTrue);
+    expect(fixture.bridge.cameraCalls, 1);
+    await fixture.controller.stop(pause: true);
+  });
+
   test('原生启动失败时不打开相机也不开始播放', () async {
     final fixture = _Fixture();
     addTearDown(fixture.dispose);
@@ -328,7 +341,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('语音模型缺失不会启动窗口或相机', (tester) async {
+  testWidgets('首次准备模型失败时不会启动窗口或相机', (tester) async {
     final fixture = _Fixture();
     addTearDown(fixture.dispose);
     await fixture.settings.setScrollMode(ScrollMode.asr);
@@ -392,7 +405,7 @@ class _Fixture {
   }
   final bridge = _FakeBridge();
   final TeleprompterProvider teleprompter;
-  final settings = SettingsProvider();
+  final settings = _FixtureSettings();
   final connection = _LocalConnection();
   late final FloatingTeleprompterController controller;
   void dispose() {
@@ -403,10 +416,21 @@ class _Fixture {
   }
 }
 
+class _FixtureSettings extends SettingsProvider {
+  @override
+  Future<void> prepareVoiceModel() async => throw StateError('离线且模型未安装');
+}
+
 class _LocalConnection extends ConnectionProvider {
   bool local = true;
   @override
-  bool get isConnected => true;
+  bool get isConnected => online;
+  bool online = true;
+  @override
+  Future<void> connectToBundledLocal() async {
+    online = true;
+  }
+
   @override
   bool get isLocal => local;
   @override

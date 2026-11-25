@@ -176,6 +176,24 @@ void main() {
       expect(rewindResult.meta.allowBackward, isTrue);
     });
 
+    test('短回读不会吸附到后文相同词，补足原句后回到前段', () {
+      const script = '今天介绍收音设备。接下来逐个试听。这里放一段不同的内容。今天再看画面。';
+      final alignment = TeleprompterAlignment()..setScript(script);
+      final cursor = script.indexOf('听');
+      alignment.setCurrentIndex(cursor);
+      expect(alignment.consumeTranscript('今天', false).index, cursor);
+      final reread = alignment.consumeTranscript('今天介绍收音', false);
+      expect(reread.index, script.indexOf('音'));
+      expect(reread.meta.allowBackward, true);
+    });
+
+    test('相邻相同的完整句按稿件顺序前进', () {
+      const line = '收音设备已经全部就绪';
+      final alignment = TeleprompterAlignment()..setScript('$line。$line。');
+      alignment.consumeTranscript(line, true);
+      expect(alignment.consumeTranscript(line, true).index, line.length * 2);
+    });
+
     test('ASR advances are limited like the reference client', () {
       expect(
         AsrSessionService.limitAdvance(

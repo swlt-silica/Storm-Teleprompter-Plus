@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../backend/ws_protocol.dart';
+import '../services/asr_service.dart';
 import '../models/app_settings.dart';
 import '../models/floating_overlay_settings.dart';
 import 'connection_provider.dart';
@@ -262,6 +263,42 @@ class SettingsProvider with ChangeNotifier {
     _settings = _settings.copyWith(autoHideDelaySeconds: seconds);
     notifyListeners();
     await _saveSettings();
+  }
+
+  Future<void>? _modelPreparation;
+
+  Future<void> prepareVoiceModel() {
+    if (_settings.asrModelId.isNotEmpty) return Future.value();
+    return _modelPreparation ??= _selectInstalledOrDownload().whenComplete(() {
+      _modelPreparation = null;
+    });
+  }
+
+  Future<void> _selectInstalledOrDownload() async {
+    final asr = AsrService.instance;
+    final models = await asr.listAvailableModels();
+    AsrModelInfo? selected;
+    for (final model in models) {
+      if (await asr.isModelDownloaded(model.id)) {
+        selected = model;
+        break;
+      }
+    }
+    if (selected == null) {
+      final lightweight = models.firstWhere((m) => m.id == 'zipformer2-ced');
+      await asr.downloadModel(
+        lightweight,
+        customMirrorUrl: _settings.asrMirrorUrl,
+        useSystemProxy: _settings.asrUseSystemProxy,
+      );
+      if (!await asr.isModelDownloaded(lightweight.id)) {
+        throw StateError('首次使用需要下载语音模型，请检查网络后再点开始');
+      }
+      selected = lightweight;
+    }
+    if (_connection?.isLocal == true && _settings.asrModelId.isEmpty) {
+      await setAsrModel(selected.id, selected.name);
+    }
   }
 
   /// 设置 ASR 模型信息

@@ -80,7 +80,9 @@ Future<void> _startApplication(AppLogService appLog) async {
   final articleProvider = ArticleProvider();
   final folderProvider = FolderProvider();
   final settingsProvider = SettingsProvider();
-  final teleprompterProvider = TeleprompterProvider();
+  final teleprompterProvider = TeleprompterProvider(
+    prepareVoiceModel: settingsProvider.prepareVoiceModel,
+  );
 
   // 绑定连接到数据 Provider
   connectionProvider.bindLocalBackend(globalBackendServer);

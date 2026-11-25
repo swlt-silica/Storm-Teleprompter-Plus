@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../backend/ws_protocol.dart';
 import '../models/app_settings.dart';
+import '../models/article.dart';
 import '../models/script_character.dart';
 import '../providers/settings_provider.dart';
 import '../providers/connection_provider.dart';
@@ -27,6 +28,10 @@ enum TeleprompterState {
 /// 管理提词器的滚动、ASR 对齐、文本渲染等核心逻辑。
 /// 自动滚动使用周期计时器累计真实时间，避免帧率变化影响滚动速度。
 class TeleprompterProvider with ChangeNotifier {
+  TeleprompterProvider({this.prepareVoiceModel});
+
+  final Future<void> Function()? prepareVoiceModel;
+
   // ─── 核心状态 ──────────────────────────────────────────
   TeleprompterState _state = TeleprompterState.idle;
   int _currentIndex = -1; // 当前高亮字符的原稿索引
@@ -57,6 +62,8 @@ class TeleprompterProvider with ChangeNotifier {
   StreamSubscription<WsMessage>? _asrResultSubscription;
   StreamSubscription<WsMessage>? _asrStatusSubscription;
   bool _disposed = false;
+  Article? _article;
+  int _voiceRequest = 0;
 
   // ─── 全屏/控制面板 ─────────────────────────────────────
   bool _controlsVisible = true;
@@ -124,13 +131,24 @@ class TeleprompterProvider with ChangeNotifier {
   void bindConnection(ConnectionProvider connection) {
     _asrResultSubscription?.cancel();
     _asrStatusSubscription?.cancel();
+    _connection?.removeListener(_onConnectionChanged);
     _connection = connection;
+    connection.addListener(_onConnectionChanged);
     _asrResultSubscription = connection
         .listenTo(WsMessageType.asrResult)
         .listen(_applyAsrMessage);
     _asrStatusSubscription = connection
         .listenTo(WsMessageType.asrStatus)
         .listen(_applyAsrMessage);
+  }
+
+  void _onConnectionChanged() {
+    if (isPlaying &&
+        _activeAutoMode == ScrollMode.asr &&
+        _asrStatus == 'running' &&
+        _connection?.isConnected == false) {
+      _voiceFailed('本机连接已中断，点击开始即可继续');
+    }
   }
 
   void _applyAsrMessage(WsMessage message) {
@@ -301,10 +319,16 @@ class TeleprompterProvider with ChangeNotifier {
     return _rawIndexAtOrdinal(_ordinalForRawIndex(rawIndex));
   }
 
+  void loadArticle(Article article) {
+    loadScript(article.id, article.content);
+    _article = article;
+  }
+
   /// 加载稿件内容
   void loadScript(String articleId, String content) {
     _stopAutoScroll();
     _stopAsr();
+    _article = null;
     _articleId = articleId;
 
     // 解析文本为行
@@ -340,8 +364,8 @@ class TeleprompterProvider with ChangeNotifier {
     _state = TeleprompterState.playing;
     _playStartTime = DateTime.now();
     _startAutoScrollIfNeeded(settings);
-    _startAsrIfNeeded(settings);
     _scheduleHideControls(settings);
+    _startAsrIfNeeded(settings);
     _syncToBackend(reliable: true);
     notifyListeners();
   }
@@ -661,36 +685,83 @@ class TeleprompterProvider with ChangeNotifier {
   void _startAsrIfNeeded(AppSettings settings) {
     if (settings.scrollMode != ScrollMode.asr) return;
     final connection = _connection;
-    if (connection == null || !connection.isConnected) {
-      _asrStatus = 'error';
-      _asrError = '服务端未连接';
+    if (connection == null ||
+        connection.isRemote ||
+        connection.canRetryRemoteConnection) {
+      _voiceFailed('当前无法控制本机语音跟读');
       return;
     }
     _asrStatus = 'loading';
     _asrError = null;
-    unawaited(_startAsrAfterCursorSync(connection));
+    unawaited(_prepareVoice(connection, settings, ++_voiceRequest));
   }
 
-  Future<void> _startAsrAfterCursorSync(ConnectionProvider connection) async {
+  Future<void> _prepareVoice(
+    ConnectionProvider connection,
+    AppSettings settings,
+    int request,
+  ) async {
+    bool active() => !_disposed && request == _voiceRequest && isPlaying;
     try {
-      // 恢复识别前先等待服务端接受当前字，避免 ASR 使用暂停前的旧锚点。
+      final reconnect = !connection.isConnected;
+      if (reconnect) await connection.connectToBundledLocal();
+      if (!active()) return;
+      if (!connection.isLocal || !connection.isConnected) {
+        throw StateError(connection.lastError ?? '本机服务启动失败，请再次点击开始');
+      }
+      if (settings.asrModelId.isEmpty) {
+        await prepareVoiceModel?.call();
+        if (!active()) return;
+        if (!connection.isLocal || !connection.isConnected)
+          throw StateError('准备模型时本机连接中断，请点击开始继续');
+      }
+      final article = _article;
+      if (article != null &&
+          (reconnect || connection.bundledArticleId != article.id)) {
+        final response = await connection.request(
+          WsMessageType.teleprompterStartSession,
+          data: {
+            ..._currentSyncData(),
+            'article': article.toJson(),
+            'settings': settings.toTeleprompterMap(),
+          },
+        );
+        if (response.data['success'] != true) throw StateError('无法恢复当前稿件');
+      }
+      if (!active()) return;
       await _syncToBackendReliably(_currentSyncData());
-      if (!isPlaying || _activeAutoMode != ScrollMode.asr) return;
+      if (!active()) return;
       final response = await connection.request(
         WsMessageType.asrStart,
         timeout: const Duration(minutes: 2),
       );
-      if (_disposed) return;
+      if (!active()) return;
+      if (response.data['success'] == false ||
+          response.data['status'] == 'error') {
+        throw StateError(response.data['error'] as String? ?? '语音识别启动失败');
+      }
       _applyAsrMessage(response);
     } catch (error) {
-      if (_disposed) return;
-      _asrStatus = 'error';
-      _asrError = error.toString();
-      notifyListeners();
+      if (active()) _voiceFailed(error.toString());
     }
   }
 
+  void _voiceFailed(String reason) {
+    _voiceRequest++;
+    _state = TeleprompterState.paused;
+    if (_playStartTime != null)
+      _elapsedBeforePause += DateTime.now().difference(_playStartTime!);
+    _playStartTime = null;
+    _asrStatus = 'error';
+    _asrError = reason;
+    _controlsVisible = true;
+    _cancelHideControls();
+    _syncToBackend(reliable: true);
+    notifyListeners();
+  }
+
   void _stopAsr() {
+    _voiceRequest++;
     final connection = _connection;
     if (connection != null && connection.isConnected && connection.isLocal) {
       unawaited(
@@ -757,6 +828,7 @@ class TeleprompterProvider with ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _connection?.removeListener(_onConnectionChanged);
     _asrResultSubscription?.cancel();
     _asrStatusSubscription?.cancel();
     _stopAutoScroll();

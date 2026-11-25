@@ -38,6 +38,11 @@ class ConnectionProvider with ChangeNotifier {
   String? _lastError;
   StreamSubscription? _messageSubscription;
   BackendServer? _localBackend;
+  Future<void>? _localConnect;
+  bool _retryRemote = false;
+
+  String? get bundledArticleId =>
+      _localBackend?.teleprompterSession.activeArticleId;
 
   ConnectionProvider() {
     client.onDisconnected = _handleClientDisconnected;
@@ -141,6 +146,7 @@ class ConnectionProvider with ChangeNotifier {
 
   bool get canRetryRemoteConnection =>
       _mode == ConnectionMode.disconnected &&
+      _retryRemote &&
       _remoteHost != null &&
       _remotePort != null;
 
@@ -196,6 +202,7 @@ class ConnectionProvider with ChangeNotifier {
     if (client.isConnected || canRetryRemoteConnection) {
       await client.disconnect();
     }
+    _retryRemote = false;
     _remoteHost = NetworkConstants.loopbackHost;
     _remotePort = port;
     _lastError = null;
@@ -214,7 +221,13 @@ class ConnectionProvider with ChangeNotifier {
     }
   }
 
-  Future<void> connectToBundledLocal() async {
+  Future<void> connectToBundledLocal() {
+    return _localConnect ??= _connectBundled().whenComplete(
+      () => _localConnect = null,
+    );
+  }
+
+  Future<void> _connectBundled() async {
     final backend = _localBackend;
     if (backend == null) {
       _mode = ConnectionMode.disconnected;
@@ -246,6 +259,7 @@ class ConnectionProvider with ChangeNotifier {
       }
       _remoteHost = host;
       _remotePort = port;
+      _retryRemote = true;
       _mode = ConnectionMode.remote;
       _lastError = null;
       _setupMessageListener();
@@ -270,6 +284,7 @@ class ConnectionProvider with ChangeNotifier {
     _messageSubscription?.cancel();
     await client.disconnect();
     _mode = ConnectionMode.disconnected;
+    _retryRemote = false;
     _remoteHost = null;
     _remotePort = null;
     _deviceCount = 0;

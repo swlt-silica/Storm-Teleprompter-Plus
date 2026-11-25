@@ -207,7 +207,7 @@ mixin HomeLogic on State<HomePage>, HomeQuickMode {
     final teleprompterProvider = context.read<TeleprompterProvider>();
 
     settingsProvider.applyRemoteTeleprompterSettings(settingsOverride);
-    teleprompterProvider.loadScript(article.id, article.content);
+    teleprompterProvider.loadArticle(article);
     teleprompterProvider.applyRemoteSync(
       currentIndex: (message.data['currentIndex'] as num?)?.toInt() ?? -1,
       isPlaying: message.data['isPlaying'] as bool? ?? false,
@@ -1070,7 +1070,7 @@ mixin HomeLogic on State<HomePage>, HomeQuickMode {
     final settingsProvider = this.context.read<SettingsProvider>();
     final connection = this.context.read<ConnectionProvider>();
     settingsProvider.useSharedTeleprompterSettings();
-    teleprompterProvider.loadScript(article.id, article.content);
+    teleprompterProvider.loadArticle(article);
     if (connection.isLocal && connection.isConnected) {
       connection.send(
         WsMessage(

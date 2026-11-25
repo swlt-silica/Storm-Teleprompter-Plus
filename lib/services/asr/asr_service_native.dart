@@ -77,6 +77,17 @@ class AsrModels {
       recommendedMemoryMB: 768,
     ),
     AsrModelInfo(
+      id: 'zipformer-zh-int8-2025-06-30',
+      name: 'Zipformer 中文 INT8（2025）',
+      description: '2025 年 6 月发布的量化流式中文模型，适合普通话稿件',
+      downloadUrl:
+          'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30.tar.bz2',
+      approximateSizeMB: 127,
+      scenario: '普通话稿件',
+      accuracy: '待设备实测',
+      latency: '依设备而定',
+    ),
+    AsrModelInfo(
       id: 'zipformer-english',
       name: 'Zipformer English',
       description: '官方流式纯英文 Transducer 模型，减少中英双语词表开销并提升英文识别速度',
