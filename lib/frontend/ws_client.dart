@@ -54,9 +54,11 @@ class WsClient {
     final uri = Uri.parse('ws://$host:$port');
 
     try {
-      _channel = WebSocketChannel.connect(uri);
-      _channel!.stream.listen(
+      final channel = WebSocketChannel.connect(uri);
+      _channel = channel;
+      channel.stream.listen(
         (dynamic data) {
+          if (!identical(channel, _channel)) return;
           try {
             final message = WsMessage.fromString(data as String);
 
@@ -79,12 +81,14 @@ class WsClient {
           }
         },
         onDone: () {
+          if (!identical(channel, _channel)) return;
           _isConnected = false;
           debugPrint('[WsClient] 连接已断开');
           onDisconnected?.call();
           _rejectPendingRequests('连接已断开');
         },
         onError: (error) {
+          if (!identical(channel, _channel)) return;
           _isConnected = false;
           debugPrint('[WsClient] 连接错误: $error');
           onDisconnected?.call();

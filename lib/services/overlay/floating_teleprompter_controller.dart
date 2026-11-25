@@ -52,6 +52,10 @@ class FloatingTeleprompterController extends ChangeNotifier {
       !connection.isConnected ||
       connection.canRetryRemoteConnection;
 
+  bool get canStartOnDevice =>
+      !controlLocked ||
+      (!connection.isConnected && !connection.canRetryRemoteConnection);
+
   FloatingScriptText get scriptText {
     if (!identical(_cachedLines, teleprompter.lines)) {
       _cachedLines = teleprompter.lines;
@@ -87,14 +91,11 @@ class FloatingTeleprompterController extends ChangeNotifier {
 
   Future<void> start({bool openCamera = false}) async {
     if (_disposed || _starting) return;
-    if (controlLocked) throw StateError('请在本机服务端模式下启动悬浮提词');
+    if (!canStartOnDevice) throw StateError('请在本机服务端模式下启动悬浮提词');
     if (scriptText.text.trim().isEmpty) throw StateError('稿件为空，请先填写台词');
     final current = settings.mergedSettings;
     if (current.isContinuousScroll) {
       throw StateError('悬浮提词支持按字自动滚动和语音跟读，请先切换滚动方式');
-    }
-    if (current.scrollMode == ScrollMode.asr && current.asrModelId.isEmpty) {
-      throw StateError('请先在应用设置中下载并选择语音识别模型');
     }
 
     _starting = true;
@@ -104,6 +105,11 @@ class FloatingTeleprompterController extends ChangeNotifier {
     var nativeStarted = false;
     notifyListeners();
     try {
+      if (!connection.isConnected) {
+        await connection.connectToBundledLocal();
+        if (_disposed || generation != _generation) return;
+        if (controlLocked) throw StateError(connection.lastError ?? '本机服务启动失败');
+      }
       final status = await bridge.status();
       if (_disposed || generation != _generation) return;
       if (!status.overlayPermission) throw StateError('请先允许“显示在其他应用上层”');
@@ -111,6 +117,13 @@ class FloatingTeleprompterController extends ChangeNotifier {
         if (!status.microphonePermission) throw StateError('请先允许麦克风权限');
         if (!status.accessibilityEnabled) {
           throw StateError('相机录像时语音跟读需要先启用“飓风提词器：相机悬浮跟读”无障碍服务');
+        }
+      }
+      if (current.scrollMode == ScrollMode.asr && current.asrModelId.isEmpty) {
+        await settings.prepareVoiceModel();
+        if (_disposed || generation != _generation) return;
+        if (controlLocked || settings.settings.asrModelId.isEmpty) {
+          throw StateError('本机语音模型尚未准备好');
         }
       }
       await bridge.start(_payload());

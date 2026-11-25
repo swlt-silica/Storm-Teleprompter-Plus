@@ -267,7 +267,7 @@ mixin EditorLogic on State<EditorPage> {
     final teleprompterProvider = context.read<TeleprompterProvider>();
     final settingsProvider = context.read<SettingsProvider>();
     settingsProvider.useSharedTeleprompterSettings();
-    teleprompterProvider.loadScript(article.id, article.content);
+    teleprompterProvider.loadArticle(article);
     final connection = context.read<ConnectionProvider>();
     if (connection.isLocal && connection.isConnected) {
       connection.send(

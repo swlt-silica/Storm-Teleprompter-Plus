@@ -1518,7 +1518,8 @@ class _TeleprompterPageState extends State<TeleprompterPage>
     AppSettings settings,
   ) {
     final message = switch (teleprompter.asrStatus) {
-      'loading' => '正在加载语音识别模型...',
+      'loading' =>
+        settings.asrModelId.isEmpty ? '正在准备语音模型，首次使用可能需要下载…' : '正在启动本机语音跟读…',
       'error' => teleprompter.asrError ?? '语音识别启动失败',
       _ when teleprompter.asrTranscript.isNotEmpty =>
         teleprompter.asrTranscript,

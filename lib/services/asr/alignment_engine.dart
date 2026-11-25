@@ -268,7 +268,9 @@ class TeleprompterAlignment {
   int? _confirmedBackwardIndex(String transcript) {
     if (_currentIndex < 0) return null;
     final latinOnly = _latinOnlyRegex.hasMatch(transcript);
-    final minimumLength = latinOnly ? 12 : 8;
+    final minimumLength = latinOnly ? 10 : 6;
+    // Consecutive identical sentences should follow the current reading order.
+    if (_cleanScript.startsWith(transcript, _anchorIndex + 1)) return null;
     if (transcript.length < minimumLength) return null;
 
     final searchStart = (_currentIndex - _backwardSearchWindow).clamp(
@@ -326,9 +328,20 @@ class TeleprompterAlignment {
     }
 
     final anchorStart = (_anchorIndex + 1).clamp(0, _cleanScript.length);
+    final contiguous = _cleanScript.startsWith(cleanText, anchorStart);
     final windowResult = _findBestMatch(anchorStart, cleanText);
+    final match = windowResult.match;
+    final skipped =
+        windowResult.offset + match.scriptAdvance - match.matchedLength;
+    // A partial like “今天” provides no evidence for skipping a paragraph.
+    // Require several closely matching spoken characters for a distant resync.
+    final plausibleDistance =
+        skipped <= (cleanText.length < 4 ? 0 : 3) ||
+        (match.matchedLength >= 6 &&
+            match.matchedLength >= cleanText.length * 0.85 &&
+            match.scriptAdvance - match.matchedLength <= 2);
 
-    if (!_hasEnoughConfidence(cleanText, windowResult.match)) {
+    if (!plausibleDistance || !_hasEnoughConfidence(cleanText, match)) {
       final rawIndex = _toRawIndex(_currentIndex);
       if (isFinal) _anchorIndex = _currentIndex;
       return AlignmentResult(
@@ -353,9 +366,7 @@ class TeleprompterAlignment {
     if (isFinal) _anchorIndex = _currentIndex;
 
     final rawIndex = _toRawIndex(_currentIndex);
-    final strategy = (anchorStart == 0 && windowResult.offset == 0)
-        ? 'anchor'
-        : 'char_resync';
+    final strategy = contiguous ? 'anchor' : 'char_resync';
 
     return AlignmentResult(
       index: rawIndex,

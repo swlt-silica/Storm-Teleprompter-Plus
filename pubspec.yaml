@@ -1,7 +1,7 @@
 name: storm_teleprompter_plus
 description: "飓风提词器 Plus - 基于 Flutter 构建的智能提词器应用"
 publish_to: 'none'
-version: 1.2.1+5
+version: 1.2.2+6
 
 environment:
   sdk: ^3.12.1

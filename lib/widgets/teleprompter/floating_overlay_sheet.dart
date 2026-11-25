@@ -122,9 +122,8 @@ class _FloatingOverlaySheetState extends State<FloatingOverlaySheet>
         permissionReady &&
         !_busy &&
         !controller.starting &&
-        !controller.controlLocked &&
+        controller.canStartOnDevice &&
         !continuous &&
-        (!voice || appSettings.asrModelId.isNotEmpty) &&
         controller.scriptText.text.trim().isNotEmpty;
     return SizedBox(
       height: MediaQuery.sizeOf(context).height * 0.9,
@@ -283,9 +282,9 @@ class _FloatingOverlaySheetState extends State<FloatingOverlaySheet>
             ],
             if (voice && appSettings.asrModelId.isEmpty) ...[
               const SizedBox(height: 12),
-              const Text('尚未选择语音模型，请先返回应用设置下载并选择模型。'),
+              const Text('开始后将自动选择本机模型，首次使用可能需要下载。'),
             ],
-            if (controller.controlLocked) ...[
+            if (!controller.canStartOnDevice) ...[
               const SizedBox(height: 12),
               const Text('请在本机服务端模式下使用悬浮提词。远程连接中不提供本机播放控制。'),
             ],
