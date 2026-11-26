@@ -15,11 +15,11 @@
 
 ### 下载安装与应用内更新
 
-**[前往本 Fork Releases 下载](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases)** · **[最新版 1.2.4](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/tag/v1.2.4)**
+**[前往本 Fork Releases 下载](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases)** · **[最新版 1.2.5](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/tag/v1.2.5)**
 
 | 安装包 | 用途 |
 | --- | --- |
-| [Android ARM64 · 1.2.4](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/download/v1.2.4/storm_teleprompter_plus-android-arm64-v8a.apk) | 推荐用于 ARM64 手机，含悬浮窗、MIUI 指引、云端整库上传/恢复和 x-ASR 模型选择，可覆盖更新此前本 Fork 版本 |
+| [Android ARM64 · 1.2.5](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/download/v1.2.5/storm_teleprompter_plus-android-arm64-v8a.apk) | 推荐用于 ARM64 手机，含悬浮窗、MIUI 指引、云端整库上传/恢复和 x-ASR 模型选择，可覆盖更新此前本 Fork 版本 |
 | [Windows x64 · 1.2.1](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/download/v1.2.1-cloud/storm-cloud-windows-x64.zip) | 完整解压后运行 exe；支持普通提词、镜像、离线语音跟随和云稿库，跨应用悬浮窗仅 Android 支持 |
 
 正式版本发布后，应用会在启动时检查 GitHub Releases。Android ARM64 设备在发现新版本时可以点击“立即更新”，应用会下载并校验 APK，然后调起 Android 系统安装界面确认更新。桌面端和没有匹配安装包的设备会打开对应的 Release 页面。

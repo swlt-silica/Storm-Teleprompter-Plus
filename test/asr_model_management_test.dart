@@ -97,4 +97,82 @@ void main() {
       );
     },
   );
+
+  test('failed model load preserves the previously loaded model state', () async {
+    final temporaryDirectory = await Directory.systemTemp.createTemp(
+      'storm_asr_load_fallback_test_',
+    );
+    appDataDirectoryOverride = Directory(
+      '${temporaryDirectory.path}${Platform.pathSeparator}app_data',
+    );
+    final service = AsrService.instance;
+    const previousModelId = 'previous-model';
+    const brokenModelId = 'broken-model';
+
+    addTearDown(() async {
+      service.setLoadedModelForTesting(null);
+      appDataDirectoryOverride = null;
+      if (await temporaryDirectory.exists()) {
+        await temporaryDirectory.delete(recursive: true);
+      }
+    });
+
+    AsrService.markBindingsInitializedForTesting();
+    final brokenModelDirectory = Directory(
+      '${appDataDirectoryOverride!.path}${Platform.pathSeparator}'
+      'asr_models${Platform.pathSeparator}$brokenModelId',
+    );
+    await brokenModelDirectory.create(recursive: true);
+    service.setLoadedModelForTesting(previousModelId);
+
+    await expectLater(
+      service.loadModel(brokenModelId),
+      throwsA(isA<Exception>()),
+    );
+
+    expect(service.isModelLoaded, isTrue);
+    expect(service.currentModelId, previousModelId);
+  });
+
+  test('imported x-ASR archives persist the zipformer2 model type', () async {
+    final temporaryDirectory = await Directory.systemTemp.createTemp(
+      'storm_asr_x_asr_import_test_',
+    );
+    final archiveFile = File(
+      '${temporaryDirectory.path}${Platform.pathSeparator}x-asr.tar.bz2',
+    );
+    const modelId = 'x-asr-imported';
+    appDataDirectoryOverride = Directory(
+      '${temporaryDirectory.path}${Platform.pathSeparator}app_data',
+    );
+    final service = AsrService.instance;
+
+    addTearDown(() async {
+      await service.deleteModel(modelId);
+      appDataDirectoryOverride = null;
+      if (await temporaryDirectory.exists()) {
+        await temporaryDirectory.delete(recursive: true);
+      }
+    });
+
+    final archive = Archive()
+      ..addFile(ArchiveFile.string('fixture/tokens.txt', 'a 0'))
+      ..addFile(ArchiveFile('fixture/encoder.onnx', 1, [0]))
+      ..addFile(ArchiveFile('fixture/decoder.onnx', 1, [0]))
+      ..addFile(ArchiveFile('fixture/joiner.onnx', 1, [0]));
+    final tarBytes = TarEncoder().encodeBytes(archive);
+    await archiveFile.writeAsBytes(BZip2Encoder().encodeBytes(tarBytes));
+
+    await service.importModelArchive(
+      archiveFile.path,
+      modelId: modelId,
+      archiveName:
+          'sherpa-onnx-x-asr-960ms-streaming-zipformer-transducer-zh-en-punct.tar.bz2',
+    );
+
+    final importedModel = (await service.listAvailableModels()).singleWhere(
+      (model) => model.id == modelId,
+    );
+    expect(importedModel.modelType, 'zipformer2');
+  });
 }

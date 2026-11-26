@@ -89,6 +89,12 @@ class AsrService with ChangeNotifier {
 
   static void init() {}
 
+  @visibleForTesting
+  static void markBindingsInitializedForTesting() {}
+
+  @visibleForTesting
+  void setLoadedModelForTesting(String? modelId) {}
+
   bool get isModelLoaded => false;
   String? get currentModelId => null;
   bool get isRunning => false;

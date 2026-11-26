@@ -498,6 +498,11 @@ class AsrService with ChangeNotifier {
     }
   }
 
+  @visibleForTesting
+  static void markBindingsInitializedForTesting() {
+    _bindingsInitialized = true;
+  }
+
   /// 模型是否已加载
   bool get isModelLoaded => _isModelLoaded;
 
@@ -509,6 +514,12 @@ class AsrService with ChangeNotifier {
   double get previewRms => _previewRms;
   String? get previewDeviceId => _previewDeviceId;
   String? get previewError => _previewError;
+
+  @visibleForTesting
+  void setLoadedModelForTesting(String? modelId) {
+    _isModelLoaded = modelId != null;
+    _currentModelId = modelId;
+  }
 
   Future<List<InputDevice>> listInputDevices() async {
     if (!await _previewRecorder.hasPermission(request: true)) return const [];
@@ -1103,7 +1114,7 @@ class AsrService with ChangeNotifier {
           'name': displayName,
           'source': 'imported',
           'approximateSizeMB': (archiveSize / (1024 * 1024)).round(),
-          'modelType': '',
+          'modelType': _inferImportedModelType(sourceName),
           'tier': '导入',
         }),
         flush: true,
@@ -1121,6 +1132,10 @@ class AsrService with ChangeNotifier {
     );
     notifyListeners();
     return resolvedId;
+  }
+
+  String _inferImportedModelType(String archiveName) {
+    return archiveName.toLowerCase().contains('x-asr') ? 'zipformer2' : '';
   }
 
   Future<bool> _containsRequiredModelFiles(Directory directory) async {
@@ -1185,10 +1200,6 @@ class AsrService with ChangeNotifier {
       throw StateError('sherpa-onnx 尚未初始化，请先调用 AsrService.init()');
     }
 
-    if (_isModelLoaded) {
-      await unloadModel();
-    }
-
     final modelDir = await _getModelDir();
     final targetDir = p.join(modelDir, modelId);
 
@@ -1196,6 +1207,11 @@ class AsrService with ChangeNotifier {
     if (!await dir.exists()) {
       throw Exception('模型未下载: $modelId');
     }
+
+    final previousRecognizer = _recognizer;
+    final previousIsModelLoaded = _isModelLoaded;
+    final previousModelId = _currentModelId;
+    sherpa.OnlineRecognizer? nextRecognizer;
 
     try {
       await _flattenInstalledModelFiles(dir);
@@ -1290,14 +1306,20 @@ class AsrService with ChangeNotifier {
         rule3MinUtteranceLength: rule3MinUtteranceLength,
       );
 
-      _recognizer = sherpa.OnlineRecognizer(config);
+      nextRecognizer = sherpa.OnlineRecognizer(config);
+      if (_isRunning) await stop();
+      previousRecognizer?.free();
+      _recognizer = nextRecognizer;
+      nextRecognizer = null;
       _isModelLoaded = true;
       _currentModelId = modelId;
 
       debugPrint('[AsrService] 模型加载成功: $modelId');
     } catch (e) {
-      _isModelLoaded = false;
-      _currentModelId = null;
+      nextRecognizer?.free();
+      _recognizer = previousRecognizer;
+      _isModelLoaded = previousIsModelLoaded;
+      _currentModelId = previousModelId;
       debugPrint('[AsrService] 模型加载失败: $e');
       rethrow;
     }

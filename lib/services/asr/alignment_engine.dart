@@ -35,12 +35,16 @@ class AlignmentMeta {
   /// 是否为较长片段确认后的回读定位
   final bool allowBackward;
 
+  /// 是否为从当前锚点连续匹配出的发音容错片段
+  final bool allowLongForward;
+
   const AlignmentMeta({
     required this.strategy,
     this.matchedLength = 0,
     required this.text,
     required this.isFinal,
     this.allowBackward = false,
+    this.allowLongForward = false,
   });
 }
 
@@ -415,6 +419,9 @@ class TeleprompterAlignment {
     if (isFinal) _anchorIndex = _currentIndex;
 
     final rawIndex = _toRawIndex(_currentIndex);
+    final allowLongForward = match.phoneticMatchedLength > 0 &&
+        resolvedAnchorStart == anchorStart &&
+        match.scriptAdvance == match.matchedLength;
     final strategy = contiguous
         ? 'anchor'
         : match.phoneticMatchedLength > 0
@@ -429,6 +436,7 @@ class TeleprompterAlignment {
         matchedLength: windowResult.match.matchedLength,
         text: text,
         isFinal: isFinal,
+        allowLongForward: allowLongForward,
       ),
     );
   }

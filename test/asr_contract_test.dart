@@ -274,6 +274,25 @@ void main() {
       expect(alignment.consumeTranscript(line, true).index, line.length * 2);
     });
 
+    test('连续发音容错匹配允许一次提交完整片段', () {
+      final alignment = TeleprompterAlignment()..setScript('中国测试');
+
+      final result = alignment.consumeTranscript('忠国侧试', true);
+
+      expect(result.index, 3);
+      expect(result.meta.strategy, 'phonetic_resync');
+      expect(result.meta.allowLongForward, isTrue);
+      expect(
+        AsrSessionService.limitAdvance(
+          currentIndex: 0,
+          requestedIndex: result.index,
+          isFinal: true,
+          allowLongAdvance: result.meta.allowLongForward,
+        ),
+        3,
+      );
+    });
+
     test('ASR advances are limited like the reference client', () {
       expect(
         AsrSessionService.limitAdvance(
@@ -298,6 +317,18 @@ void main() {
           isFinal: false,
         ),
         20,
+      );
+    });
+
+    test('发音容错的连续片段不受普通远跳上限限制', () {
+      expect(
+        AsrSessionService.limitAdvance(
+          currentIndex: 10,
+          requestedIndex: 30,
+          isFinal: true,
+          allowLongAdvance: true,
+        ),
+        30,
       );
     });
   });

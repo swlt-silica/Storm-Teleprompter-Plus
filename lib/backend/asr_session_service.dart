@@ -25,12 +25,14 @@ class AsrSessionService {
     required int currentIndex,
     required int requestedIndex,
     required bool isFinal,
+    bool allowLongAdvance = false,
   }) {
     if (requestedIndex < 0 ||
         currentIndex < 0 ||
         requestedIndex <= currentIndex) {
       return requestedIndex;
     }
+    if (allowLongAdvance) return requestedIndex;
     final maxAdvance = isFinal ? maxFinalAdvance : maxPartialAdvance;
     return requestedIndex
         .clamp(currentIndex, currentIndex + maxAdvance)
@@ -269,6 +271,7 @@ class AsrSessionService {
             currentIndex: _currentIndex,
             requestedIndex: result.index,
             isFinal: isFinal,
+            allowLongAdvance: result.meta.allowLongForward,
           );
     if (alignedIndex >= 0 &&
         (alignedIndex >= _currentIndex || result.meta.allowBackward)) {
