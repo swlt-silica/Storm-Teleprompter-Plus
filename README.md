@@ -15,16 +15,16 @@
 
 ### 下载安装与应用内更新
 
-**[前往本 Fork Releases 下载](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases)** · **[最新版 1.2.3](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/tag/v1.2.3)**
+**[前往本 Fork Releases 下载](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases)** · **[最新版 1.2.4](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/tag/v1.2.4)**
 
 | 安装包 | 用途 |
 | --- | --- |
-| [Android ARM64 · 1.2.3](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/download/v1.2.3/storm-teleprompter-1.2.3-arm64.apk) | 推荐用于 ARM64 手机，含悬浮窗、MIUI 指引及云端整库上传/恢复，可覆盖更新此前本 Fork 版本 |
+| [Android ARM64 · 1.2.4](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/download/v1.2.4/storm_teleprompter_plus-android-arm64-v8a.apk) | 推荐用于 ARM64 手机，含悬浮窗、MIUI 指引、云端整库上传/恢复和 x-ASR 模型选择，可覆盖更新此前本 Fork 版本 |
 | [Windows x64 · 1.2.1](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/download/v1.2.1-cloud/storm-cloud-windows-x64.zip) | 完整解压后运行 exe；支持普通提词、镜像、离线语音跟随和云稿库，跨应用悬浮窗仅 Android 支持 |
 
 正式版本发布后，应用会在启动时检查 GitHub Releases。Android ARM64 设备在发现新版本时可以点击“立即更新”，应用会下载并校验 APK，然后调起 Android 系统安装界面确认更新。桌面端和没有匹配安装包的设备会打开对应的 Release 页面。
 
-Android 在线更新只选择文件名包含 `arm64` 或 `arm64-v8a` 且以 `.apk` 结尾的发布附件。正式 Android 安装包使用 `storm-teleprompter-<版本>-arm64.apk` 命名，例如 `storm-teleprompter-1.2.3-arm64.apk`。APK 下载完成后会校验 GitHub Release 提供的 SHA-256 digest，校验失败不会进入安装流程。
+Android 在线更新只选择文件名包含 `arm64` 或 `arm64-v8a` 且以 `.apk` 结尾的发布附件。正式 Android 安装包使用包含 `arm64` 的 `.apk` 文件名。APK 下载完成后会校验 GitHub Release 提供的 SHA-256 digest，校验失败不会进入安装流程。
 
 旧悬浮版 1.0.0 和 Redmi 适配版 1.0.1 也保存在 Releases，仅作历史版本，均不含云稿库。应用名为 **飓风提词器·悬浮版**，独立包名 `work.swlt.stormteleprompter`，可与原版并存。原版数据请先导出完整备份，再在本 Fork 中恢复；本 Fork 后续覆盖更新沿用同一签名。
 
