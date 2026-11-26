@@ -246,6 +246,10 @@ jobs:
           done
           cp build/app/outputs/bundle/release/app-release.aab artifacts/${APP_NAME}-android.aab
 
+          test -s "artifacts/${APP_NAME}-android-arm64-v8a.apk"
+          test -s "artifacts/${APP_NAME}-android.aab"
+          sha256sum artifacts/* > artifacts/SHA256SUMS.txt
+
       - uses: actions/upload-artifact@v4
         with:
           name: android

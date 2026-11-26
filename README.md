@@ -13,14 +13,18 @@
 | 私有云端稿库 | 局域网连接同一服务端同步播放 | 新增独立的云稿库入口，Android / Windows 各设备可上传本机全部稿件及文件夹，覆盖云端唯一总备份；整库恢复到本机后独立、离线提词，保留设备设置 |
 | Markdown / GPT 上传 | 不含本 Fork 的云稿库上传接口 | 独立 Python / SQLite 服务、Markdown 上传 API、CLI 和 GPT Action 定义；以脚本编号为标题，同编号更新，备注不进入台词 |
 
-### 下载安装
+### 下载安装与应用内更新
 
-**[前往本 Fork Releases 下载](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases)** · **[最新版 1.2.1](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/tag/v1.2.1-cloud)**
+**[前往本 Fork Releases 下载](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases)** · **[最新版 1.2.3](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/tag/v1.2.3)**
 
 | 安装包 | 用途 |
 | --- | --- |
-| [Android ARM64 · 1.2.1](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/download/v1.2.1-cloud/storm-cloud-android-arm64.apk) | 推荐用于 ARM64 手机，含悬浮窗、MIUI 指引及云端整库上传/恢复，可覆盖更新此前本 Fork 版本 |
+| [Android ARM64 · 1.2.3](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/download/v1.2.3/storm-teleprompter-1.2.3-arm64.apk) | 推荐用于 ARM64 手机，含悬浮窗、MIUI 指引及云端整库上传/恢复，可覆盖更新此前本 Fork 版本 |
 | [Windows x64 · 1.2.1](https://github.com/swlt-silica/Storm-Teleprompter-Plus/releases/download/v1.2.1-cloud/storm-cloud-windows-x64.zip) | 完整解压后运行 exe；支持普通提词、镜像、离线语音跟随和云稿库，跨应用悬浮窗仅 Android 支持 |
+
+正式版本发布后，应用会在启动时检查 GitHub Releases。Android ARM64 设备在发现新版本时可以点击“立即更新”，应用会下载并校验 APK，然后调起 Android 系统安装界面确认更新。桌面端和没有匹配安装包的设备会打开对应的 Release 页面。
+
+Android 在线更新只选择文件名包含 `arm64` 或 `arm64-v8a` 且以 `.apk` 结尾的发布附件。正式 Android 安装包使用 `storm-teleprompter-<版本>-arm64.apk` 命名，例如 `storm-teleprompter-1.2.3-arm64.apk`。APK 下载完成后会校验 GitHub Release 提供的 SHA-256 digest，校验失败不会进入安装流程。
 
 旧悬浮版 1.0.0 和 Redmi 适配版 1.0.1 也保存在 Releases，仅作历史版本，均不含云稿库。应用名为 **飓风提词器·悬浮版**，独立包名 `work.swlt.stormteleprompter`，可与原版并存。原版数据请先导出完整备份，再在本 Fork 中恢复；本 Fork 后续覆盖更新沿用同一签名。
 
@@ -329,6 +333,8 @@ GitHub Actions 可以构建 Android、Windows、Linux、macOS 和未签名 iOS �
   ```
 
 - 推送 `v1.0.0` 格式的 tag 时，会创建 `draft=true`、`prerelease=false` 的 Release。
+
+- 每个正式版本都必须上传可安装的 Android ARM64 APK，并使用包含 `arm64` 的 `.apk` 文件名，应用内更新依赖该命名约定。发布前应核对附件状态、文件大小和 SHA-256，再公开 Release。
 
 Android Release 构建需要先配置仓库 Secrets，详情见 Android 签名文档。
 

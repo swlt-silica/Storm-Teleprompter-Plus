@@ -6,22 +6,39 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/app_release_service.dart';
+import '../services/app_update_installer.dart';
 import '../theme/app_colors.dart';
 import '../utils/constants.dart';
 import '../services/windows_shell_about_service.dart';
 import 'log_viewer_page.dart';
 
 class AboutPage extends StatefulWidget {
-  const AboutPage({super.key, this.versionLoader});
+  const AboutPage({
+    super.key,
+    this.versionLoader,
+    this.releaseService,
+    this.updateInstaller,
+    this.isAndroid,
+    this.releaseLauncher,
+  });
 
   final Future<AppVersionInfo> Function()? versionLoader;
+  final AppReleaseService? releaseService;
+  final AppUpdateInstaller? updateInstaller;
+  final bool? isAndroid;
+  final Future<void> Function(String url)? releaseLauncher;
 
   @override
   State<AboutPage> createState() => _AboutPageState();
 }
 
 class _AboutPageState extends State<AboutPage> {
-  final AppReleaseService _releaseService = AppReleaseService();
+  late final AppReleaseService _releaseService =
+      widget.releaseService ?? AppReleaseService();
+  late final AppUpdateInstaller _updateInstaller =
+      widget.updateInstaller ?? AppUpdateInstaller();
+  late final bool _ownsReleaseService = widget.releaseService == null;
+  late final bool _ownsUpdateInstaller = widget.updateInstaller == null;
   late final Future<AppVersionInfo> _version;
   Timer? _logoTapResetTimer;
   int _logoTapCount = 0;
@@ -42,7 +59,8 @@ class _AboutPageState extends State<AboutPage> {
     _logoTapResetTimer?.cancel();
     _chineseNameTapResetTimer?.cancel();
     _englishNameTapResetTimer?.cancel();
-    _releaseService.dispose();
+    if (_ownsReleaseService) _releaseService.dispose();
+    if (_ownsUpdateInstaller) _updateInstaller.dispose();
     super.dispose();
   }
 
@@ -212,7 +230,7 @@ class _AboutPageState extends State<AboutPage> {
             : AppConstants.chineseAboutDescription,
       );
     } catch (error) {
-      debugPrint('[About] 调用 Windows 原生关于对话框失败: $error');
+      if (mounted) _showMessage('调用 Windows 原生关于对话框失败：$error');
     }
   }
 
@@ -238,10 +256,20 @@ class _AboutPageState extends State<AboutPage> {
               FilledButton.icon(
                 onPressed: () {
                   Navigator.pop(dialogContext);
-                  _openUrl(result.latestRelease.pageUrl);
+                  if (_canInstall(result)) {
+                    unawaited(_downloadAndInstall(result));
+                  } else {
+                    _openUrl(result.latestRelease.pageUrl);
+                  }
                 },
                 icon: const Icon(Icons.system_update_alt),
-                label: Text(result.hasUpdate ? '前往更新' : '查看 Release'),
+                label: Text(
+                  _canInstall(result)
+                      ? '立即更新'
+                      : result.hasUpdate
+                      ? '前往更新'
+                      : '查看 Release',
+                ),
               ),
           ],
         ),
@@ -286,11 +314,86 @@ class _AboutPageState extends State<AboutPage> {
   }
 
   Future<void> _openUrl(String value) async {
+    final launcher = widget.releaseLauncher;
+    if (launcher != null) {
+      await launcher(value);
+      return;
+    }
     final opened = await launchUrl(
       Uri.parse(value),
       mode: LaunchMode.externalApplication,
     );
     if (!opened && mounted) _showMessage('无法打开链接');
+  }
+
+  bool _canInstall(UpdateCheckResult result) {
+    final android =
+        widget.isAndroid ?? defaultTargetPlatform == TargetPlatform.android;
+    return android && result.latestRelease.androidApk != null;
+  }
+
+  Future<void> _downloadAndInstall(UpdateCheckResult result) async {
+    final asset = result.latestRelease.androidApk;
+    if (asset == null) {
+      await _openUrl(result.latestRelease.pageUrl);
+      return;
+    }
+
+    final progress = ValueNotifier<(int received, int total)>((
+      0,
+      asset.size ?? -1,
+    ));
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => ValueListenableBuilder<(int, int)>(
+          valueListenable: progress,
+          builder: (_, value, __) {
+            final total = value.$2;
+            return AlertDialog(
+              title: const Text('正在下载更新'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  LinearProgressIndicator(
+                    value: total > 0 ? value.$1 / total : null,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    total > 0
+                        ? '${_formatBytes(value.$1)} / ${_formatBytes(total)}'
+                        : _formatBytes(value.$1),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    try {
+      await Future<void>.delayed(Duration.zero);
+      final file = await _updateInstaller.download(
+        asset,
+        onProgress: (received, total) => progress.value = (received, total),
+      );
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      await _updateInstaller.install(file);
+    } catch (error) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      _showMessage('更新失败：$error');
+      await _openUrl(result.latestRelease.pageUrl);
+    } finally {
+      progress.dispose();
+    }
+  }
+
+  String _formatBytes(int value) {
+    if (value < 1024) return '$value B';
+    if (value < 1024 * 1024) return '${(value / 1024).toStringAsFixed(1)} KB';
+    return '${(value / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
   void _showMessage(String message) {

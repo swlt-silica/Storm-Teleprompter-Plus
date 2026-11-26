@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/app_preferences.dart';
 import '../../services/app_release_service.dart';
+import '../../services/app_update_installer.dart';
 import '../../utils/constants.dart';
 
 typedef AppVersionLoader = Future<AppVersionInfo> Function();
@@ -13,6 +15,7 @@ typedef AppUpdateChecker =
 typedef IgnoredUpdateLoader = Future<String?> Function();
 typedef IgnoredUpdateSaver = Future<void> Function(String version);
 typedef ReleaseLauncher = Future<void> Function(String url);
+typedef AndroidPlatformResolver = bool Function();
 
 /// 首帧后静默检查 GitHub Release，仅在发现未屏蔽的新版本时提示。
 class StartupUpdateChecker extends StatefulWidget {
@@ -24,6 +27,8 @@ class StartupUpdateChecker extends StatefulWidget {
     this.ignoredVersionLoader,
     this.ignoredVersionSaver,
     this.releaseLauncher,
+    this.updateInstaller,
+    this.isAndroid,
   });
 
   final Widget child;
@@ -32,6 +37,8 @@ class StartupUpdateChecker extends StatefulWidget {
   final IgnoredUpdateLoader? ignoredVersionLoader;
   final IgnoredUpdateSaver? ignoredVersionSaver;
   final ReleaseLauncher? releaseLauncher;
+  final AppUpdateInstaller? updateInstaller;
+  final AndroidPlatformResolver? isAndroid;
 
   @override
   State<StartupUpdateChecker> createState() => _StartupUpdateCheckerState();
@@ -39,6 +46,9 @@ class StartupUpdateChecker extends StatefulWidget {
 
 class _StartupUpdateCheckerState extends State<StartupUpdateChecker> {
   final AppReleaseService _releaseService = AppReleaseService();
+  late final AppUpdateInstaller _updateInstaller =
+      widget.updateInstaller ?? AppUpdateInstaller();
+  late final bool _ownsUpdateInstaller = widget.updateInstaller == null;
   bool _checkStarted = false;
 
   @override
@@ -52,6 +62,7 @@ class _StartupUpdateCheckerState extends State<StartupUpdateChecker> {
   @override
   void dispose() {
     _releaseService.dispose();
+    if (_ownsUpdateInstaller) _updateInstaller.dispose();
     super.dispose();
   }
 
@@ -84,12 +95,13 @@ class _StartupUpdateCheckerState extends State<StartupUpdateChecker> {
           );
         case _UpdateAction.openRelease:
           await _openRelease(result.latestRelease.pageUrl);
+        case _UpdateAction.install:
+          await _downloadAndInstall(result);
         case _UpdateAction.later:
           break;
       }
     } catch (error) {
-      // 启动检查不能干扰应用使用，错误只进入应用日志。
-      debugPrint('[StartupUpdate] 检查更新失败: $error');
+      // 启动检查不能干扰应用使用。
     }
   }
 
@@ -133,10 +145,20 @@ class _StartupUpdateCheckerState extends State<StartupUpdateChecker> {
             child: const Text('稍后更新'),
           ),
           FilledButton.icon(
-            onPressed: () =>
-                Navigator.pop(dialogContext, _UpdateAction.openRelease),
+            onPressed: () => Navigator.pop(
+              dialogContext,
+              _canInstall(result)
+                  ? _UpdateAction.install
+                  : _UpdateAction.openRelease,
+            ),
             icon: const Icon(Icons.system_update_alt),
-            label: const Text('前往更新'),
+            label: Text(
+              _canInstall(result)
+                  ? '立即更新'
+                  : _isAndroid
+                  ? '前往 Release 下载'
+                  : '前往更新',
+            ),
           ),
         ],
       ),
@@ -177,4 +199,83 @@ class _StartupUpdateCheckerState extends State<StartupUpdateChecker> {
   }
 }
 
-enum _UpdateAction { ignore, later, openRelease }
+extension on _StartupUpdateCheckerState {
+  bool _canInstall(UpdateCheckResult result) {
+    return _isAndroid && result.latestRelease.androidApk != null;
+  }
+
+  bool get _isAndroid =>
+      widget.isAndroid?.call() ??
+      defaultTargetPlatform == TargetPlatform.android;
+
+  Future<void> _downloadAndInstall(UpdateCheckResult result) async {
+    final asset = result.latestRelease.androidApk;
+    if (asset == null) {
+      await _openRelease(result.latestRelease.pageUrl);
+      return;
+    }
+
+    final progress = ValueNotifier<(int received, int total)>((
+      0,
+      asset.size ?? -1,
+    ));
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => ValueListenableBuilder<(int, int)>(
+          valueListenable: progress,
+          builder: (_, value, __) {
+            final total = value.$2;
+            final fraction = total > 0 ? value.$1 / total : null;
+            return AlertDialog(
+              title: const Text('正在下载更新'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  LinearProgressIndicator(value: fraction),
+                  const SizedBox(height: 12),
+                  Text(
+                    total > 0
+                        ? '${_formatBytes(value.$1)} / ${_formatBytes(total)}'
+                        : _formatBytes(value.$1),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    try {
+      await Future<void>.delayed(Duration.zero);
+      final file = await _updateInstaller.download(
+        asset,
+        onProgress: (received, total) => progress.value = (received, total),
+      );
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      await _updateInstaller.install(file);
+    } catch (error) {
+      if (mounted) {
+        Navigator.of(
+          context,
+          rootNavigator: true,
+        ).popUntil((route) => route.isFirst);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('更新失败：$error')));
+        await _openRelease(result.latestRelease.pageUrl);
+      }
+    } finally {
+      progress.dispose();
+    }
+  }
+
+  String _formatBytes(int value) {
+    if (value < 1024) return '$value B';
+    if (value < 1024 * 1024) return '${(value / 1024).toStringAsFixed(1)} KB';
+    return '${(value / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+}
+
+enum _UpdateAction { ignore, later, openRelease, install }

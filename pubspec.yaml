@@ -1,7 +1,7 @@
 name: storm_teleprompter_plus
 description: "飓风提词器 Plus - 基于 Flutter 构建的智能提词器应用"
 publish_to: 'none'
-version: 1.2.2+6
+version: 1.2.3+7
 
 environment:
   sdk: ^3.12.1
@@ -25,6 +25,7 @@ dependencies:
 
   # HTTP 下载（ASR 模型下载）
   http: ^1.2.2
+  crypto: ^3.0.8
 
   # 解压模型文件
   archive: ^4.0.2

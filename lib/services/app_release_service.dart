@@ -30,12 +30,45 @@ class GitHubReleaseInfo {
     required this.name,
     required this.pageUrl,
     required this.notes,
+    this.assets = const [],
   });
 
   final String tagName;
   final String name;
   final String pageUrl;
   final String notes;
+  final List<GitHubReleaseAsset> assets;
+
+  GitHubReleaseAsset? get androidApk {
+    final candidates = assets.where((asset) => asset.isArm64Apk).toList();
+    if (candidates.isEmpty) return null;
+    candidates.sort((left, right) {
+      final leftPreferred = left.name.toLowerCase().contains('arm64-v8a');
+      final rightPreferred = right.name.toLowerCase().contains('arm64-v8a');
+      return rightPreferred.toString().compareTo(leftPreferred.toString());
+    });
+    return candidates.first;
+  }
+}
+
+class GitHubReleaseAsset {
+  const GitHubReleaseAsset({
+    required this.name,
+    required this.downloadUrl,
+    required this.size,
+    required this.digest,
+  });
+
+  final String name;
+  final String downloadUrl;
+  final int? size;
+  final String? digest;
+
+  bool get isArm64Apk {
+    final lowerName = name.toLowerCase();
+    return lowerName.endsWith('.apk') &&
+        (lowerName.contains('arm64') || lowerName.contains('arm64-v8a'));
+  }
 }
 
 class UpdateCheckResult {
@@ -74,6 +107,7 @@ class AppReleaseService {
       name: json['name'] as String? ?? '',
       pageUrl: json['html_url'] as String? ?? githubRepositoryUrl,
       notes: json['body'] as String? ?? '',
+      assets: _parseAssets(json['assets']),
     );
     if (release.tagName.isEmpty) throw StateError('Release 版本信息无效');
 
@@ -89,6 +123,20 @@ class AppReleaseService {
   }
 
   void dispose() => _client.close();
+}
+
+List<GitHubReleaseAsset> _parseAssets(Object? value) {
+  if (value is! List) return const [];
+  return [
+    for (final item in value)
+      if (item is Map<String, dynamic>)
+        GitHubReleaseAsset(
+          name: item['name'] as String? ?? '',
+          downloadUrl: item['browser_download_url'] as String? ?? '',
+          size: item['size'] as int?,
+          digest: item['digest'] as String?,
+        ),
+  ];
 }
 
 List<int>? _parseSemanticVersion(String value) {

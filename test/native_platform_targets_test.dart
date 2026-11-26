@@ -27,4 +27,22 @@ void main() {
       isNot(contains('iOS, Web,')),
     );
   });
+
+  test('Android update installer exposes a cache-only FileProvider bridge', () {
+    final manifest = File(
+      'android/app/src/main/AndroidManifest.xml',
+    ).readAsStringSync();
+    final activity = File(
+      'android/app/src/main/kotlin/com/example/storm_teleprompter_plus/MainActivity.kt',
+    ).readAsStringSync();
+    final filePaths = File('android/app/src/main/res/xml/file_paths.xml');
+
+    expect(manifest, contains('android.permission.REQUEST_INSTALL_PACKAGES'));
+    expect(manifest, contains('androidx.core.content.FileProvider'));
+    expect(manifest, contains('\${applicationId}.fileprovider'));
+    expect(activity, contains('storm.teleprompter/update'));
+    expect(activity, contains('installApk'));
+    expect(filePaths.existsSync(), isTrue);
+    expect(filePaths.readAsStringSync(), contains('<cache-path'));
+  });
 }
