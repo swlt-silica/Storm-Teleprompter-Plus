@@ -1,3 +1,5 @@
+import 'chinese_pronunciation_matcher.dart';
+
 /// 对齐引擎匹配结果
 class AlignmentResult {
   /// 匹配到的原稿字符索引
@@ -19,7 +21,7 @@ class AlignmentResult {
 /// 对齐元数据
 class AlignmentMeta {
   /// 匹配策略
-  final String strategy; // 'none' | 'anchor' | 'char_resync' | 'empty'
+  final String strategy;
 
   /// 匹配字符数
   final int matchedLength;
@@ -45,11 +47,17 @@ class AlignmentMeta {
 /// 内部匹配结果
 class _MatchResult {
   final int matchedLength;
+  final int exactMatchedLength;
+  final int phoneticMatchedLength;
+  final double score;
   final int scriptAdvance;
   final int transcriptAdvance;
 
   const _MatchResult({
     required this.matchedLength,
+    required this.exactMatchedLength,
+    required this.phoneticMatchedLength,
+    required this.score,
     required this.scriptAdvance,
     required this.transcriptAdvance,
   });
@@ -155,6 +163,11 @@ class TeleprompterAlignment {
     return code >= 65 && code <= 90 ? String.fromCharCode(code + 32) : char;
   }
 
+  bool _isChinese(String char) {
+    final code = char.runes.first;
+    return code >= 0x3400 && code <= 0x9FFF;
+  }
+
   /// 字符级匹配（跳字容错）
   ///
   /// ASR 识别可能吞字或产生幻觉，允许双向最多跳过 3 个字符进行容错匹配。
@@ -164,6 +177,9 @@ class TeleprompterAlignment {
     int transcriptIndex = 0;
     int lastMatchedScriptIndex = scriptStart - 1;
     int matchedLength = 0;
+    int exactMatchedLength = 0;
+    int phoneticMatchedLength = 0;
+    double score = 0;
 
     while (scriptIndex < _cleanScript.length &&
         transcriptIndex < transcript.length) {
@@ -173,6 +189,25 @@ class TeleprompterAlignment {
       if (scriptChar == transcriptChar) {
         lastMatchedScriptIndex = scriptIndex;
         matchedLength++;
+        exactMatchedLength++;
+        score += 1;
+        scriptIndex++;
+        transcriptIndex++;
+        continue;
+      }
+
+      final phoneticSimilarity = _isChinese(scriptChar) &&
+              _isChinese(transcriptChar)
+          ? ChinesePronunciationMatcher.similarity(
+              scriptChar,
+              transcriptChar,
+            )
+          : 0.0;
+      if (phoneticSimilarity > 0) {
+        lastMatchedScriptIndex = scriptIndex;
+        matchedLength++;
+        phoneticMatchedLength++;
+        score += phoneticSimilarity;
         scriptIndex++;
         transcriptIndex++;
         continue;
@@ -209,6 +244,9 @@ class TeleprompterAlignment {
 
     return _MatchResult(
       matchedLength: matchedLength,
+      exactMatchedLength: exactMatchedLength,
+      phoneticMatchedLength: phoneticMatchedLength,
+      score: score,
       scriptAdvance: (lastMatchedScriptIndex - scriptStart + 1).clamp(
         0,
         _cleanScript.length,
@@ -244,6 +282,12 @@ class TeleprompterAlignment {
     _MatchResult current,
     int currentOffset,
   ) {
+    if (candidate.score != current.score) {
+      return candidate.score > current.score;
+    }
+    if (candidate.exactMatchedLength != current.exactMatchedLength) {
+      return candidate.exactMatchedLength > current.exactMatchedLength;
+    }
     if (candidate.matchedLength != current.matchedLength) {
       return candidate.matchedLength > current.matchedLength;
     }
@@ -262,7 +306,12 @@ class TeleprompterAlignment {
           match.matchedLength / transcript.length >= 0.55;
     }
     final minimum = transcript.length >= 4 ? 2 : 1;
-    return match.matchedLength >= minimum;
+    if (match.phoneticMatchedLength == 0) {
+      return match.matchedLength >= minimum;
+    }
+    final phoneticMinimum = transcript.length >= 6 ? 3 : 2;
+    return match.matchedLength >= phoneticMinimum &&
+        match.score / transcript.length >= 0.55;
   }
 
   int? _confirmedBackwardIndex(String transcript) {
@@ -366,7 +415,11 @@ class TeleprompterAlignment {
     if (isFinal) _anchorIndex = _currentIndex;
 
     final rawIndex = _toRawIndex(_currentIndex);
-    final strategy = contiguous ? 'anchor' : 'char_resync';
+    final strategy = contiguous
+        ? 'anchor'
+        : match.phoneticMatchedLength > 0
+        ? 'phonetic_resync'
+        : 'char_resync';
 
     return AlignmentResult(
       index: rawIndex,

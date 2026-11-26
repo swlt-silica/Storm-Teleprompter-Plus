@@ -94,6 +94,42 @@ void main() {
   });
 
   group('server-side transcript alignment', () {
+    test('tolerates common Mandarin pronunciation substitutions', () {
+      final alignment = TeleprompterAlignment()
+        ..setScript('工程安静知识吃饭这是一个连续测试句子');
+
+      final result = alignment.consumeTranscript(
+        '公程昂静资识次饭四是一个连续测试句子',
+        true,
+      );
+
+      expect(result.index, greaterThanOrEqualTo(15));
+      expect(result.meta.strategy, 'phonetic_resync');
+    });
+
+    test('does not resync on one fuzzy Chinese character', () {
+      final alignment = TeleprompterAlignment()
+        ..setScript('这是前面的内容。资识是后面的内容。');
+      alignment.setCurrentIndex(1);
+
+      final result = alignment.consumeTranscript('知', false);
+
+      expect(result.index, 1);
+    });
+
+    test('keeps exact English matching with Chinese phonetic tolerance', () {
+      final alignment = TeleprompterAlignment()
+        ..setScript('工程 Welcome to the 2026 测试现场');
+
+      final result = alignment.consumeTranscript(
+        '公程 welcome to the 2026 测试现场',
+        true,
+      );
+
+      expect(result.index, greaterThanOrEqualTo(23));
+      expect(result.meta.strategy, 'phonetic_resync');
+    });
+
     test('partial results advance without moving backwards', () {
       final alignment = TeleprompterAlignment()..setScript('欢迎使用飓风提词器，现在开始测试。');
 

@@ -56,6 +56,7 @@ dependencies:
   url_launcher: ^6.3.2
   xml: ^7.0.1
   logger: ^2.7.0
+  pinyin: ^3.3.0
 
 dev_dependencies:
   flutter_test:
