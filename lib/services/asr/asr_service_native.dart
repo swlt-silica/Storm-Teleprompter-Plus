@@ -26,6 +26,8 @@ class AsrModelInfo {
   final String accuracy;
   final String latency;
   final int recommendedMemoryMB;
+  final String modelType;
+  final String tier;
   final bool isImported;
 
   const AsrModelInfo({
@@ -40,6 +42,8 @@ class AsrModelInfo {
     this.accuracy = '标准',
     this.latency = '低',
     this.recommendedMemoryMB = 1024,
+    this.modelType = '',
+    this.tier = '标准',
     this.isImported = false,
   });
 }
@@ -49,6 +53,66 @@ class AsrModels {
   AsrModels._();
 
   static const List<AsrModelInfo> availableModels = [
+    AsrModelInfo(
+      id: 'x-asr-960ms-zh-en-punct',
+      name: 'x-ASR 中英旗舰 960ms',
+      description: '官方 x-ASR 中英流式 Zipformer2，标准精度，优先保证识别准确率',
+      downloadUrl:
+          'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-960ms-streaming-zipformer-transducer-zh-en-punct-2026-06-05.tar.bz2',
+      approximateSizeMB: 557,
+      languages: '中文、英文',
+      scenario: '中英混合稿件与高准确率跟读',
+      accuracy: '最高',
+      latency: '960ms',
+      recommendedMemoryMB: 4096,
+      modelType: 'zipformer2',
+      tier: '旗舰',
+    ),
+    AsrModelInfo(
+      id: 'x-asr-480ms-zh-en-punct',
+      name: 'x-ASR 中英旗舰 480ms',
+      description: '官方 x-ASR 中英流式 Zipformer2，标准精度，优先降低跟读延迟',
+      downloadUrl:
+          'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-2026-06-05.tar.bz2',
+      approximateSizeMB: 557,
+      languages: '中文、英文',
+      scenario: '中英混合稿件与低延迟跟读',
+      accuracy: '很高',
+      latency: '480ms',
+      recommendedMemoryMB: 4096,
+      modelType: 'zipformer2',
+      tier: '旗舰',
+    ),
+    AsrModelInfo(
+      id: 'x-asr-960ms-zh-en-punct-int8',
+      name: 'x-ASR 中英旗舰 960ms INT8',
+      description: '官方 x-ASR 中英流式 Zipformer2，量化精度，节省存储和运行内存',
+      downloadUrl:
+          'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-960ms-streaming-zipformer-transducer-zh-en-punct-int8-2026-06-05.tar.bz2',
+      approximateSizeMB: 128,
+      languages: '中文、英文',
+      scenario: '中英混合稿件与低内存设备',
+      accuracy: '高',
+      latency: '960ms',
+      recommendedMemoryMB: 2048,
+      modelType: 'zipformer2',
+      tier: '旗舰 INT8',
+    ),
+    AsrModelInfo(
+      id: 'x-asr-480ms-zh-en-punct-int8',
+      name: 'x-ASR 中英旗舰 480ms INT8',
+      description: '官方 x-ASR 中英流式 Zipformer2，量化精度与低延迟组合',
+      downloadUrl:
+          'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8-2026-06-05.tar.bz2',
+      approximateSizeMB: 128,
+      languages: '中文、英文',
+      scenario: '中英混合稿件与低内存低延迟跟读',
+      accuracy: '高',
+      latency: '480ms',
+      recommendedMemoryMB: 2048,
+      modelType: 'zipformer2',
+      tier: '旗舰 INT8',
+    ),
     AsrModelInfo(
       id: 'zipformer-bilingual-zh-en',
       name: 'Zipformer 中英双语',
@@ -528,13 +592,40 @@ class AsrService with ChangeNotifier {
   }
 
   AsrModelInfo recommendModel() {
-    final processors = Platform.numberOfProcessors;
-    final preferredId = processors >= 8
-        ? 'zipformer-bilingual-zh-en'
-        : 'zipformer2-ced';
     return AsrModels.availableModels.firstWhere(
-      (model) => model.id == preferredId,
+      (model) => model.id == 'x-asr-960ms-zh-en-punct',
     );
+  }
+
+  Map<String, dynamic> _modelMetadata(AsrModelInfo model) {
+    return {
+      'id': model.id,
+      'name': model.name,
+      'description': model.description,
+      'source': model.isImported ? 'imported' : 'catalog',
+      'approximateSizeMB': model.approximateSizeMB,
+      'languages': model.languages,
+      'scenario': model.scenario,
+      'accuracy': model.accuracy,
+      'latency': model.latency,
+      'recommendedMemoryMB': model.recommendedMemoryMB,
+      'modelType': model.modelType,
+      'tier': model.tier,
+    };
+  }
+
+  Future<Map<String, dynamic>> _readModelMetadata(
+    Directory modelDirectory,
+  ) async {
+    final metadataFile = File(p.join(modelDirectory.path, '.model.json'));
+    if (!await metadataFile.exists()) return const {};
+    try {
+      final decoded = jsonDecode(await metadataFile.readAsString());
+      return decoded is Map<String, dynamic> ? decoded : const {};
+    } catch (error) {
+      debugPrint('[AsrService] 读取模型元数据失败 (${modelDirectory.path}): $error');
+      return const {};
+    }
   }
 
   /// 获取模型存储目录
@@ -573,11 +664,13 @@ class AsrService with ChangeNotifier {
 
       var name = id;
       var approximateSizeMB = 0;
+      Map<String, dynamic> metadata = const {};
       final metadataFile = File(p.join(entity.path, '.model.json'));
       if (await metadataFile.exists()) {
         try {
-          final metadata = jsonDecode(await metadataFile.readAsString());
-          if (metadata is Map<String, dynamic>) {
+          final decoded = jsonDecode(await metadataFile.readAsString());
+          if (decoded is Map<String, dynamic>) {
+            metadata = decoded;
             final storedName = metadata['name'];
             final storedSize = metadata['approximateSizeMB'];
             if (storedName is String && storedName.trim().isNotEmpty) {
@@ -602,6 +695,10 @@ class AsrService with ChangeNotifier {
           accuracy: '由模型决定',
           latency: '由模型决定',
           recommendedMemoryMB: 0,
+          modelType: metadata['modelType'] is String
+              ? metadata['modelType'] as String
+              : '',
+          tier: metadata['tier'] is String ? metadata['tier'] as String : '导入',
           isImported: true,
         ),
       );
@@ -801,6 +898,9 @@ class AsrService with ChangeNotifier {
           if (await tempFile.exists()) await tempFile.delete();
           return;
         }
+        await File(
+          p.join(stagingDir.path, '.model.json'),
+        ).writeAsString(jsonEncode(_modelMetadata(modelInfo)), flush: true);
         if (await dir.exists()) await dir.delete(recursive: true);
         await stagingDir.rename(targetDir);
 
@@ -1003,6 +1103,8 @@ class AsrService with ChangeNotifier {
           'name': displayName,
           'source': 'imported',
           'approximateSizeMB': (archiveSize / (1024 * 1024)).round(),
+          'modelType': '',
+          'tier': '导入',
         }),
         flush: true,
       );
@@ -1097,6 +1199,18 @@ class AsrService with ChangeNotifier {
 
     try {
       await _flattenInstalledModelFiles(dir);
+      final metadata = await _readModelMetadata(dir);
+      AsrModelInfo? catalogModel;
+      for (final candidate in AsrModels.availableModels) {
+        if (candidate.id == modelId) {
+          catalogModel = candidate;
+          break;
+        }
+      }
+      final modelType =
+          (metadata['modelType'] as String?)?.trim().isNotEmpty == true
+          ? (metadata['modelType'] as String).trim()
+          : catalogModel?.modelType ?? '';
       // 查找模型文件 —— 按文件名关键词匹配
       final files = await _listModelFiles(dir);
       String? tokensPath;
@@ -1150,6 +1264,7 @@ class AsrService with ChangeNotifier {
           tokens: tokensPath,
           numThreads: resolvedThreads,
           debug: kDebugMode,
+          modelType: modelType,
         );
         debugPrint('[AsrService] 加载 Transducer 模型');
       } else {
@@ -1162,6 +1277,7 @@ class AsrService with ChangeNotifier {
           tokens: tokensPath,
           numThreads: resolvedThreads,
           debug: kDebugMode,
+          modelType: modelType,
         );
         debugPrint('[AsrService] 加载流式 Paraformer 模型');
       }

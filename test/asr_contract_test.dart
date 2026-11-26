@@ -9,6 +9,54 @@ import 'package:storm_teleprompter_plus/services/asr/asr_transcript_normalizer.d
 
 void main() {
   group('ASR settings', () {
+    test('offers flagship x-ASR streaming model choices', () {
+      final models = AsrModels.availableModels;
+      final flagship = models.firstWhere(
+        (item) => item.id == 'x-asr-960ms-zh-en-punct',
+      );
+      final lowLatency = models.firstWhere(
+        (item) => item.id == 'x-asr-480ms-zh-en-punct',
+      );
+      final flagshipInt8 = models.firstWhere(
+        (item) => item.id == 'x-asr-960ms-zh-en-punct-int8',
+      );
+      final lowLatencyInt8 = models.firstWhere(
+        (item) => item.id == 'x-asr-480ms-zh-en-punct-int8',
+      );
+
+      expect(flagship.tier, '旗舰');
+      expect(flagship.modelType, 'zipformer2');
+      expect(flagship.latency, '960ms');
+      expect(flagship.accuracy, '最高');
+      expect(flagship.downloadUrl, contains('x-asr-960ms-streaming'));
+      expect(flagship.approximateSizeMB, greaterThan(500));
+      expect(flagship.recommendedMemoryMB, greaterThanOrEqualTo(4096));
+
+      expect(lowLatency.tier, '旗舰');
+      expect(lowLatency.modelType, 'zipformer2');
+      expect(lowLatency.latency, '480ms');
+      expect(lowLatency.downloadUrl, contains('x-asr-480ms-streaming'));
+
+      expect(flagshipInt8.tier, '旗舰 INT8');
+      expect(flagshipInt8.modelType, 'zipformer2');
+      expect(flagshipInt8.downloadUrl, contains('-int8-'));
+      expect(
+        flagshipInt8.approximateSizeMB,
+        lessThan(flagship.approximateSizeMB),
+      );
+
+      expect(lowLatencyInt8.tier, '旗舰 INT8');
+      expect(lowLatencyInt8.modelType, 'zipformer2');
+      expect(lowLatencyInt8.latency, '480ms');
+    });
+
+    test('recommends the 960ms standard precision flagship model', () {
+      expect(
+        AsrService.instance.recommendModel().id,
+        'x-asr-960ms-zh-en-punct',
+      );
+    });
+
     test('offers a dedicated English streaming model', () {
       final model = AsrModels.availableModels.firstWhere(
         (item) => item.id == 'zipformer-english',
@@ -98,18 +146,14 @@ void main() {
       final alignment = TeleprompterAlignment()
         ..setScript('工程安静知识吃饭这是一个连续测试句子');
 
-      final result = alignment.consumeTranscript(
-        '公程昂静资识次饭四是一个连续测试句子',
-        true,
-      );
+      final result = alignment.consumeTranscript('公程昂静资识次饭四是一个连续测试句子', true);
 
       expect(result.index, greaterThanOrEqualTo(15));
       expect(result.meta.strategy, 'phonetic_resync');
     });
 
     test('does not resync on one fuzzy Chinese character', () {
-      final alignment = TeleprompterAlignment()
-        ..setScript('这是前面的内容。资识是后面的内容。');
+      final alignment = TeleprompterAlignment()..setScript('这是前面的内容。资识是后面的内容。');
       alignment.setCurrentIndex(1);
 
       final result = alignment.consumeTranscript('知', false);

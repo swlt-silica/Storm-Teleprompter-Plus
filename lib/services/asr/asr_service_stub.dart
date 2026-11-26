@@ -13,6 +13,8 @@ class AsrModelInfo {
   final String accuracy;
   final String latency;
   final int recommendedMemoryMB;
+  final String modelType;
+  final String tier;
   final bool isImported;
 
   const AsrModelInfo({
@@ -27,6 +29,8 @@ class AsrModelInfo {
     this.accuracy = '标准',
     this.latency = '低',
     this.recommendedMemoryMB = 1024,
+    this.modelType = '',
+    this.tier = '标准',
     this.isImported = false,
   });
 }
