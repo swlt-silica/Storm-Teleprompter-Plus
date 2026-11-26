@@ -175,9 +175,15 @@ Android 13 及更新系统若无法启用无障碍服务，可在应用信息中
 
 | 模型 | 适用场景 | 下载链接 |
 | --- | --- | --- |
+| x-ASR 中英旗舰 960ms | 标准精度，优先识别准确率；建议 4GB 以上可用内存 | [下载](https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-960ms-streaming-zipformer-transducer-zh-en-punct-2026-06-05.tar.bz2) |
+| x-ASR 中英旗舰 480ms | 标准精度，降低流式跟随延迟；建议 4GB 以上可用内存 | [下载](https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-2026-06-05.tar.bz2) |
+| x-ASR 中英旗舰 960ms INT8 | 量化模型，节省存储和运行内存；建议 2GB 以上可用内存 | [下载](https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-960ms-streaming-zipformer-transducer-zh-en-punct-int8-2026-06-05.tar.bz2) |
+| x-ASR 中英旗舰 480ms INT8 | 量化模型，兼顾低延迟和较低内存占用；建议 2GB 以上可用内存 | [下载](https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8-2026-06-05.tar.bz2) |
 | Zipformer 中英双语 | 中英混合稿件和高准确率场景 | [下载](https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.tar.bz2) |
 | Zipformer2 CED 中文 | 中文、低延迟和资源受限设备 | [下载](https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23.tar.bz2) |
 | Zipformer English | 纯英文演讲和英文低延迟跟随 | [下载](https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-en-2023-06-21.tar.bz2) |
+
+默认推荐 x-ASR 中英旗舰 960ms 标准精度模型。它的包体积和内存占用较高，适合可以承载大型模型的手机。需要更快中间结果时选择 480ms，需要减少内存和存储占用时选择 INT8 版本。模型下载由用户在设置页点击开始，下载、解压和加载失败时会保留原有可用模型。
 
 模型文件体积较大。下载设置支持系统代理和自定义镜像；解压过程在后台执行。
 

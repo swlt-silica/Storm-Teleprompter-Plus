@@ -389,6 +389,7 @@ class SettingsPage extends StatelessWidget {
     SettingsProvider provider,
     AppSettings settings,
   ) {
+    final recommendedModel = AsrService.instance.recommendModel();
     return Column(
       children: [
         ListTile(
@@ -399,6 +400,21 @@ class SettingsPage extends StatelessWidget {
           ),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => _showAsrModelSelector(context, provider),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              '旗舰推荐：${recommendedModel.name} · 标准精度 · '
+              '建议内存 ${recommendedModel.recommendedMemoryMB} MB\n'
+              '可选 INT8 量化和 480ms 低延迟档位',
+              style: TextStyle(
+                fontSize: 12,
+                color: AppColors.textMutedFor(context),
+              ),
+            ),
+          ),
         ),
         ListTile(
           leading: const Icon(Icons.file_upload_outlined),
@@ -528,6 +544,42 @@ class SettingsPage extends StatelessWidget {
                                       const SizedBox(height: 3),
                                       Text(model.description),
                                       const SizedBox(height: 3),
+                                      if (model.modelType.isNotEmpty) ...[
+                                        Wrap(
+                                          spacing: 8,
+                                          runSpacing: 2,
+                                          children: [
+                                            Text(
+                                              model.tier.contains('INT8')
+                                                  ? 'INT8 量化'
+                                                  : '标准精度',
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            Text(
+                                              model.tier,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: AppColors.textMutedFor(
+                                                  ctx,
+                                                ),
+                                              ),
+                                            ),
+                                            Text(
+                                              '建议内存 ${model.recommendedMemoryMB} MB',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: AppColors.textMutedFor(
+                                                  ctx,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 3),
+                                      ],
                                       Text(
                                         modelDetails,
                                         style: TextStyle(
@@ -569,7 +621,7 @@ class SettingsPage extends StatelessWidget {
                                         ),
                                       if (model.id == recommendedModelId)
                                         const Text(
-                                          '根据本机处理器性能推荐',
+                                          '旗舰推荐',
                                           style: TextStyle(
                                             fontSize: 12,
                                             color: AppColors.success,

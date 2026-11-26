@@ -8,6 +8,37 @@ import 'package:storm_teleprompter_plus/providers/settings_provider.dart';
 import 'package:storm_teleprompter_plus/providers/folder_provider.dart';
 
 void main() {
+  testWidgets('ASR model cards show flagship precision and recommendation', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsProvider();
+    final connection = ConnectionProvider();
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => FolderProvider()),
+          ChangeNotifierProvider.value(value: settings),
+          ChangeNotifierProvider.value(value: connection),
+        ],
+        child: const MaterialApp(home: SettingsPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(find.text('下载与高级设置'), 250);
+    expect(find.textContaining('旗舰推荐'), findsOneWidget);
+    expect(find.textContaining('可选 INT8 量化和 480ms 低延迟档位'), findsOneWidget);
+
+    connection.dispose();
+    settings.dispose();
+  });
+
   testWidgets('ASR advanced dialog owns controllers through route disposal', (
     tester,
   ) async {
